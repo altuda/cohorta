@@ -409,7 +409,7 @@ def draw_oncoplot(
             cm_name = data_row_cmaps.get(dr_col, "viridis")
             dr_cmap = _get_cmap(cm_name).copy()
             dr_cmap.set_bad(color="#F0F0F0")
-            ax_dr.imshow(
+            im_dr = ax_dr.imshow(
                 vals.reshape(1, -1),
                 cmap=dr_cmap,
                 aspect="auto",
@@ -420,7 +420,13 @@ def draw_oncoplot(
             all_axes.append(ax_dr)
 
             if show_gene_freq:
-                fig.add_subplot(gs[row_idx, 1]).set_visible(False)
+                ax_cb = fig.add_subplot(gs[row_idx, 1])
+                ax_cb.set_axis_off()
+                valid = vals[~np.isnan(vals)]
+                if len(valid) > 0:
+                    cb = fig.colorbar(im_dr, ax=ax_cb, fraction=0.9, aspect=8,
+                                      pad=0.05, location="left")
+                    cb.ax.tick_params(labelsize=fontsize - 1)
 
     # ── 5. Annotation tracks ──────────────────────────────────
     if clinical_cols and clinical_data is not None:
@@ -467,7 +473,7 @@ def draw_oncoplot(
                 cm_name = clinical_colors.get(col, "viridis")
                 trk_cmap = _get_cmap(cm_name).copy()
                 trk_cmap.set_bad(color="#F0F0F0")
-                ax_trk.imshow(
+                im_trk = ax_trk.imshow(
                     num_vals.reshape(1, -1),
                     cmap=trk_cmap,
                     aspect="auto",
@@ -479,7 +485,16 @@ def draw_oncoplot(
             all_axes.append(ax_trk)
 
             if show_gene_freq:
-                fig.add_subplot(gs[row_idx, 1]).set_visible(False)
+                if var_type == "Continuous":
+                    ax_cb = fig.add_subplot(gs[row_idx, 1])
+                    ax_cb.set_axis_off()
+                    valid = num_vals[~np.isnan(num_vals)]
+                    if len(valid) > 0:
+                        cb = fig.colorbar(im_trk, ax=ax_cb, fraction=0.9,
+                                          aspect=8, pad=0.05, location="left")
+                        cb.ax.tick_params(labelsize=fontsize - 1)
+                else:
+                    fig.add_subplot(gs[row_idx, 1]).set_visible(False)
 
     # ── 6. Group separators & labels ───────────────────────────
     if group_boundaries:
@@ -646,6 +661,17 @@ def main():
                         CATEGORICAL_PALETTES,
                         key=f"cp_{col}",
                     )
+                    # Clear per-value colour keys when palette changes
+                    prev_key = f"_prev_pal_{col}"
+                    if (
+                        prev_key in st.session_state
+                        and st.session_state[prev_key] != pal_name
+                    ):
+                        for k in list(st.session_state.keys()):
+                            if k.startswith(f"cc_{col}_"):
+                                del st.session_state[k]
+                    st.session_state[prev_key] = pal_name
+
                     cmap = _get_cmap(pal_name)
                     unique_vals = sorted(
                         df[col].dropna().unique(), key=str,
