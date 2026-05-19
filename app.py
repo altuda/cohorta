@@ -661,17 +661,6 @@ def main():
                         CATEGORICAL_PALETTES,
                         key=f"cp_{col}",
                     )
-                    # Clear per-value colour keys when palette changes
-                    prev_key = f"_prev_pal_{col}"
-                    if (
-                        prev_key in st.session_state
-                        and st.session_state[prev_key] != pal_name
-                    ):
-                        for k in list(st.session_state.keys()):
-                            if k.startswith(f"cc_{col}_"):
-                                del st.session_state[k]
-                    st.session_state[prev_key] = pal_name
-
                     cmap = _get_cmap(pal_name)
                     unique_vals = sorted(
                         df[col].dropna().unique(), key=str,
@@ -684,7 +673,8 @@ def main():
                     color_map = {}
                     for i, val in enumerate(unique_vals[:15]):
                         color_map[val] = st.color_picker(
-                            str(val), defaults[i], key=f"cc_{col}_{val}",
+                            str(val), defaults[i],
+                            key=f"cc_{col}_{pal_name}_{val}",
                         )
                     annotation_colors[col] = color_map
                 else:
