@@ -279,10 +279,8 @@ def draw_oncoplot(
     )
     has_gap = gap_h > 0
     n_gs_rows = 2 + int(has_gap) + n_data + n_tracks
-    n_gs_cols = 2 if show_gene_freq else 1
-    width_ratios = [max(n_samples * 0.25, 6)]
-    if show_gene_freq:
-        width_ratios.append(3)
+    n_gs_cols = 2
+    width_ratios = [max(n_samples * 0.25, 6), 3]
 
     fig = plt.figure(figsize=(fig_width, fig_height))
     gs = GridSpec(
@@ -323,8 +321,7 @@ def draw_oncoplot(
     else:
         ax_tmb.set_visible(False)
 
-    if show_gene_freq:
-        fig.add_subplot(gs[0, 1]).set_visible(False)
+    fig.add_subplot(gs[0, 1]).set_visible(False)
 
     # ── 2. Central matrix ──────────────────────────────────────
     ax_mat = fig.add_subplot(gs[1, 0])
@@ -364,10 +361,18 @@ def draw_oncoplot(
     if show_gene_freq:
         ax_freq = fig.add_subplot(gs[1, 1], sharey=ax_mat)
         freq_pct = matrix.notna().sum(axis=1) / n_samples * 100
+        bar_colors = []
+        for g in genes:
+            gene_vals = matrix.loc[g].dropna()
+            if len(gene_vals) > 0:
+                dominant = gene_vals.value_counts().index[0]
+                bar_colors.append(mutation_colors.get(dominant, "#808080"))
+            else:
+                bar_colors.append("#808080")
         ax_freq.barh(
             np.arange(n_genes),
             freq_pct.values,
-            color="#1A5FB4",
+            color=bar_colors,
             height=0.75,
             linewidth=0,
         )
@@ -376,13 +381,14 @@ def draw_oncoplot(
         ax_freq.tick_params(axis="x", labelsize=fontsize - 1)
         ax_freq.spines[["top", "right", "left"]].set_visible(False)
         ax_freq.set_ylim(n_genes - 0.5, -0.5)
+    else:
+        fig.add_subplot(gs[1, 1]).set_visible(False)
 
     # ── Spacer between matrix and tracks ──────────────────────
     if has_gap:
         ax_gap = fig.add_subplot(gs[2, 0])
         ax_gap.set_visible(False)
-        if show_gene_freq:
-            fig.add_subplot(gs[2, 1]).set_visible(False)
+        fig.add_subplot(gs[2, 1]).set_visible(False)
 
     def _style_track(ax, label, n_samples, fontsize):
         """Apply consistent styling to data-row / annotation-track axes."""
@@ -419,14 +425,13 @@ def draw_oncoplot(
             _style_track(ax_dr, label, n_samples, fontsize)
             all_axes.append(ax_dr)
 
-            if show_gene_freq:
-                ax_cb = fig.add_subplot(gs[row_idx, 1])
-                ax_cb.set_axis_off()
-                valid = vals[~np.isnan(vals)]
-                if len(valid) > 0:
-                    cb = fig.colorbar(im_dr, ax=ax_cb, fraction=0.9, aspect=8,
-                                      pad=0.05, location="left")
-                    cb.ax.tick_params(labelsize=fontsize - 1)
+            ax_cb = fig.add_subplot(gs[row_idx, 1])
+            ax_cb.set_axis_off()
+            valid = vals[~np.isnan(vals)]
+            if len(valid) > 0:
+                cb = fig.colorbar(im_dr, ax=ax_cb, fraction=0.9, aspect=8,
+                                  pad=0.05, location="left")
+                cb.ax.tick_params(labelsize=fontsize - 1)
 
     # ── 5. Annotation tracks ──────────────────────────────────
     if clinical_cols and clinical_data is not None:
@@ -484,17 +489,16 @@ def draw_oncoplot(
             _style_track(ax_trk, label, n_samples, fontsize)
             all_axes.append(ax_trk)
 
-            if show_gene_freq:
-                if var_type == "Continuous":
-                    ax_cb = fig.add_subplot(gs[row_idx, 1])
-                    ax_cb.set_axis_off()
-                    valid = num_vals[~np.isnan(num_vals)]
-                    if len(valid) > 0:
-                        cb = fig.colorbar(im_trk, ax=ax_cb, fraction=0.9,
-                                          aspect=8, pad=0.05, location="left")
-                        cb.ax.tick_params(labelsize=fontsize - 1)
-                else:
-                    fig.add_subplot(gs[row_idx, 1]).set_visible(False)
+            if var_type == "Continuous":
+                ax_cb = fig.add_subplot(gs[row_idx, 1])
+                ax_cb.set_axis_off()
+                valid = num_vals[~np.isnan(num_vals)]
+                if len(valid) > 0:
+                    cb = fig.colorbar(im_trk, ax=ax_cb, fraction=0.9,
+                                      aspect=8, pad=0.05, location="left")
+                    cb.ax.tick_params(labelsize=fontsize - 1)
+            else:
+                fig.add_subplot(gs[row_idx, 1]).set_visible(False)
 
     # ── 6. Group separators & labels ───────────────────────────
     if group_boundaries:
@@ -756,17 +760,43 @@ def main():
         else "Edit colours"
     )
     with st.sidebar.expander(expander_label, expanded=False):
-        for idx, mt in enumerate(data_mut_types[:n_show]):
-            fallback = FALLBACK_COLORS[idx % len(FALLBACK_COLORS)]
-            default = DEFAULT_MUT_COLORS.get(mt, fallback)
-            mutation_colors[mt] = st.color_picker(
-                mt, default, key=f"mc_{mt}",
+        # Palette selector
+        mc_pal_name = st.selectbox(
+            "Palette",
+            CATEGORICAL_PALETTES,
+            key="mc_palette",
+        )
+        mc_cmap = _get_cmap(mc_pal_name)
+        mc_pal_defaults = _palette_colors(mc_cmap, max(len(data_mut_types), 1))
+
+        # Single-colour toggle
+        use_single = st.checkbox("Use single colour", key="mc_single_color")
+
+        if use_single:
+            single_color = st.color_picker(
+                "Colour for all types",
+                mc_pal_defaults[0],
+                key=f"mc_{mc_pal_name}_single",
             )
+            for mt in data_mut_types:
+                mutation_colors[mt] = single_color
+        else:
+            for idx, mt in enumerate(data_mut_types[:n_show]):
+                default = DEFAULT_MUT_COLORS.get(
+                    mt, mc_pal_defaults[idx % len(mc_pal_defaults)],
+                )
+                mutation_colors[mt] = st.color_picker(
+                    mt, default, key=f"mc_{mc_pal_name}_{mt}",
+                )
+    # Assign remaining types not shown in the expander
     for idx, mt in enumerate(data_mut_types):
         if mt not in mutation_colors:
-            mutation_colors[mt] = DEFAULT_MUT_COLORS.get(
-                mt, FALLBACK_COLORS[idx % len(FALLBACK_COLORS)]
-            )
+            if use_single:
+                mutation_colors[mt] = single_color
+            else:
+                mutation_colors[mt] = DEFAULT_MUT_COLORS.get(
+                    mt, mc_pal_defaults[idx % len(mc_pal_defaults)],
+                )
 
     # ── 5. Generate oncoplot ───────────────────────────────────
     st.divider()
