@@ -144,7 +144,7 @@ export default function AnnotationTrackOptions({ col }: { col: string }) {
 
       {/* Categorical color assignment */}
       {annotationType === "Categorical" && !useTileColor && (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <label className="block">
             <span className="text-xs text-slate-500">Palette</span>
             <select
@@ -158,45 +158,28 @@ export default function AnnotationTrackOptions({ col }: { col: string }) {
             </select>
           </label>
 
-          {/* Palette swatches */}
-          {palColors.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {palColors.map((c, i) => (
-                <div
-                  key={i}
-                  className="w-5 h-5 rounded text-[9px] text-white font-bold flex items-center justify-center cursor-default"
-                  style={{
-                    backgroundColor: c,
-                    textShadow: "0 0 2px rgba(0,0,0,.5)",
-                  }}
-                >
-                  {i + 1}
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* Per-value color assignment */}
-          <div className="space-y-1 max-h-60 overflow-y-auto">
+          <div className="space-y-2 max-h-72 overflow-y-auto">
             {uniqueValues.slice(0, 15).map((val) => {
               const current = existingColorMap[val] ?? "#808080";
               return (
-                <div key={val} className="flex items-center gap-2">
-                  <ColorPopover
-                    color={current}
-                    onChange={(c) => {
-                      setAnnotationColor(col, {
-                        ...existingColorMap,
-                        [val]: c,
-                      });
-                    }}
-                  />
-                  <span className="text-xs text-slate-700 truncate">
-                    {val}
-                  </span>
-                  {/* Quick palette picks */}
-                  <div className="flex gap-0.5 ml-auto">
-                    {palColors.slice(0, 6).map((pc, pi) => (
+                <div key={val}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <ColorPopover
+                      color={current}
+                      onChange={(c) => {
+                        setAnnotationColor(col, {
+                          ...existingColorMap,
+                          [val]: c,
+                        });
+                      }}
+                    />
+                    <span className="text-xs text-slate-700 truncate">
+                      {val}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {palColors.map((pc, pi) => (
                       <button
                         key={pi}
                         onClick={() =>
@@ -205,12 +188,13 @@ export default function AnnotationTrackOptions({ col }: { col: string }) {
                             [val]: pc,
                           })
                         }
-                        className={`w-4 h-4 rounded-sm border ${
+                        className={`w-5 h-5 rounded-sm border-2 transition-transform ${
                           current === pc
-                            ? "border-slate-800"
-                            : "border-transparent hover:border-slate-300"
+                            ? "border-slate-800 scale-110"
+                            : "border-transparent hover:border-slate-400"
                         }`}
                         style={{ backgroundColor: pc }}
+                        title={pc}
                       />
                     ))}
                   </div>

@@ -83,7 +83,7 @@ export default function AppShell() {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 p-6 max-w-5xl">
+      <main className="flex-1 p-6 min-w-0 max-w-7xl mx-auto">
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">

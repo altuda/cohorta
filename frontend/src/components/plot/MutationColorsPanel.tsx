@@ -3,66 +3,57 @@ import { useSessionStore } from "../../stores/useSessionStore";
 import { usePalettes, usePaletteColors } from "../../api/hooks";
 import { HexColorPicker } from "react-colorful";
 
-function ColorSwatch({
-  color,
-  selected,
-  onClick,
-  label,
-}: {
-  color: string;
-  selected?: boolean;
-  onClick: () => void;
-  label?: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-7 h-7 rounded border-2 text-[10px] font-bold text-white flex items-center justify-center transition-all ${
-        selected
-          ? "border-slate-800 scale-110 shadow"
-          : "border-transparent hover:border-slate-300"
-      }`}
-      style={{ backgroundColor: color, textShadow: "0 0 2px rgba(0,0,0,.6)" }}
-      title={color}
-    >
-      {label}
-    </button>
-  );
-}
-
 function MutTypeColorPicker({
   mt,
   defaultColor,
+  palColors,
 }: {
   mt: string;
   defaultColor: string;
+  palColors: string[];
 }) {
   const color = useSessionStore((s) => s.mutationColors[mt] ?? defaultColor);
   const setMutationColor = useSessionStore((s) => s.setMutationColor);
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-6 h-6 rounded border border-slate-200 shrink-0"
-        style={{ backgroundColor: color }}
-      />
-      <span className="text-xs text-slate-700 truncate flex-1">{mt}</span>
-      {open && (
-        <div className="absolute z-50 mt-2">
-          <div
-            className="fixed inset-0"
-            onClick={() => setOpen(false)}
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <div className="relative inline-block">
+          <button
+            onClick={() => setOpen(!open)}
+            className="w-6 h-6 rounded border border-slate-300 shrink-0"
+            style={{ backgroundColor: color }}
           />
-          <div className="relative bg-white rounded-lg shadow-lg border p-2">
-            <HexColorPicker
-              color={color}
-              onChange={(c) => setMutationColor(mt, c)}
-            />
-          </div>
+          {open && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+              <div className="absolute z-50 left-0 top-8 bg-white rounded-lg shadow-lg border p-2">
+                <HexColorPicker
+                  color={color}
+                  onChange={(c) => setMutationColor(mt, c)}
+                />
+              </div>
+            </>
+          )}
         </div>
-      )}
+        <span className="text-xs text-slate-700 truncate flex-1">{mt}</span>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {palColors.map((pc, pi) => (
+          <button
+            key={pi}
+            onClick={() => setMutationColor(mt, pc)}
+            className={`w-5 h-5 rounded-sm border-2 transition-transform ${
+              color === pc
+                ? "border-slate-800 scale-110"
+                : "border-transparent hover:border-slate-400"
+            }`}
+            style={{ backgroundColor: pc }}
+            title={pc}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -129,24 +120,6 @@ export default function MutationColorsPanel() {
           </select>
         </label>
 
-        {/* Palette swatches */}
-        {paletteColors?.colors && (
-          <div className="flex flex-wrap gap-1">
-            {paletteColors.colors.map((c, i) => (
-              <div
-                key={i}
-                className="w-5 h-5 rounded text-[9px] text-white font-bold flex items-center justify-center"
-                style={{
-                  backgroundColor: c,
-                  textShadow: "0 0 2px rgba(0,0,0,.5)",
-                }}
-              >
-                {i + 1}
-              </div>
-            ))}
-          </div>
-        )}
-
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -167,7 +140,7 @@ export default function MutationColorsPanel() {
             <span className="text-xs text-slate-500">{singleColor}</span>
           </div>
         ) : (
-          <div className="space-y-1.5 max-h-80 overflow-y-auto">
+          <div className="space-y-2 max-h-80 overflow-y-auto">
             {shown.map((mt) => (
               <MutTypeColorPicker
                 key={mt}
@@ -178,6 +151,7 @@ export default function MutationColorsPanel() {
                       (paletteColors?.colors.length || 1)
                   ] ?? "#808080"
                 }
+                palColors={paletteColors?.colors ?? []}
               />
             ))}
             {mutationTypes.length > 20 && (
