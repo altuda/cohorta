@@ -216,6 +216,7 @@ def draw_oncoplot(
     show_tmb=True,
     show_gene_freq=True,
     show_sample_labels=False,
+    annotations_position="bottom",
     fig_width=14,
     fontsize=8,
 ):
@@ -269,16 +270,56 @@ def draw_oncoplot(
     trk_h = 0.6
     # Reserve space between matrix and tracks/data-rows
     gap_h = 0.25 if (n_data + n_tracks) > 0 else 0.0
-    fig_height = tmb_h + mat_h + gap_h + n_data * data_h + n_tracks * trk_h + 1.8
-
-    height_ratios = (
-        [tmb_h, mat_h]
-        + ([gap_h] if gap_h else [])
-        + [data_h] * n_data
-        + [trk_h] * n_tracks
-    )
     has_gap = gap_h > 0
-    n_gs_rows = 2 + int(has_gap) + n_data + n_tracks
+
+    # Estimate height needed for rotated sample labels
+    _labels_visible = show_sample_labels and n_samples <= 80
+    _labels_on_top = _labels_visible and annotations_position == "bottom"
+    _labels_on_bottom = _labels_visible and annotations_position == "top"
+    if _labels_visible:
+        _max_lbl = max((len(str(s)) for s in samples), default=0)
+        _label_h = min(2.5, _max_lbl * max(fontsize - 2, 4) * 0.5 / 72)
+    else:
+        _label_h = 0.0
+
+    # Row layout depends on annotation position
+    if annotations_position == "top":
+        # TMB | tracks | data rows | gap | matrix
+        height_ratios = (
+            [tmb_h]
+            + [trk_h] * n_tracks
+            + [data_h] * n_data
+            + ([gap_h] if has_gap else [])
+            + [mat_h]
+        )
+        tmb_row = 0
+        trk_start = 1
+        data_start = 1 + n_tracks
+        gap_row = 1 + n_tracks + n_data if has_gap else None
+        mat_row = 1 + n_tracks + n_data + int(has_gap)
+        _lbl_spacer = None
+    else:
+        # TMB | (label spacer?) | matrix | gap | data rows | tracks
+        _lbl_off = int(_labels_on_top)
+        height_ratios = (
+            [tmb_h]
+            + ([_label_h] if _labels_on_top else [])
+            + [mat_h]
+            + ([gap_h] if has_gap else [])
+            + [data_h] * n_data
+            + [trk_h] * n_tracks
+        )
+        tmb_row = 0
+        _lbl_spacer = 1 if _labels_on_top else None
+        mat_row = 1 + _lbl_off
+        gap_row = 2 + _lbl_off if has_gap else None
+        data_start = 2 + _lbl_off + int(has_gap)
+        trk_start = 2 + _lbl_off + int(has_gap) + n_data
+
+    fig_height = sum(height_ratios) + 1.8
+    if _labels_on_bottom:
+        fig_height += _label_h
+    n_gs_rows = len(height_ratios)
     n_gs_cols = 2
     width_ratios = [max(n_samples * 0.25, 6), 3]
 
@@ -292,13 +333,11 @@ def draw_oncoplot(
         hspace=0.04,
         wspace=0.02,
     )
-    # Row offset: rows after the matrix start at 2 + gap
-    _row_off = 2 + int(has_gap)
 
     all_axes = []  # axes sharing the x (sample) axis
 
     # ── 1. TMB stacked bar ─────────────────────────────────────
-    ax_tmb = fig.add_subplot(gs[0, 0])
+    ax_tmb = fig.add_subplot(gs[tmb_row, 0])
     all_axes.append(ax_tmb)
     if show_tmb:
         bottom = np.zeros(n_samples)
@@ -321,10 +360,15 @@ def draw_oncoplot(
     else:
         ax_tmb.set_visible(False)
 
-    fig.add_subplot(gs[0, 1]).set_visible(False)
+    fig.add_subplot(gs[tmb_row, 1]).set_visible(False)
+
+    # Hidden spacer for sample labels extending above the matrix
+    if _lbl_spacer is not None:
+        fig.add_subplot(gs[_lbl_spacer, 0]).set_visible(False)
+        fig.add_subplot(gs[_lbl_spacer, 1]).set_visible(False)
 
     # ── 2. Central matrix ──────────────────────────────────────
-    ax_mat = fig.add_subplot(gs[1, 0])
+    ax_mat = fig.add_subplot(gs[mat_row, 0])
     all_axes.append(ax_mat)
     if all_mut_types:
         ax_mat.imshow(
@@ -349,17 +393,28 @@ def draw_oncoplot(
     ax_mat.set_xlim(-0.5, n_samples - 0.5)
     ax_mat.set_ylim(n_genes - 0.5, -0.5)
 
+    # Sample labels on the opposite side from annotations
     if show_sample_labels and n_samples <= 80:
         ax_mat.set_xticks(range(n_samples))
-        ax_mat.set_xticklabels(
-            samples, rotation=90, fontsize=max(fontsize - 2, 4),
-        )
+        if annotations_position == "bottom":
+            ax_mat.tick_params(
+                axis="x", top=True, labeltop=True,
+                bottom=False, labelbottom=False,
+            )
+            ax_mat.set_xticklabels(
+                samples, rotation=90, fontsize=max(fontsize - 2, 4),
+                ha="left",
+            )
+        else:
+            ax_mat.set_xticklabels(
+                samples, rotation=90, fontsize=max(fontsize - 2, 4),
+            )
     else:
         ax_mat.set_xticks([])
 
     # ── 3. Gene-frequency bar ──────────────────────────────────
     if show_gene_freq:
-        ax_freq = fig.add_subplot(gs[1, 1], sharey=ax_mat)
+        ax_freq = fig.add_subplot(gs[mat_row, 1], sharey=ax_mat)
         freq_pct = matrix.notna().sum(axis=1) / n_samples * 100
         bar_colors = []
         for g in genes:
@@ -382,13 +437,13 @@ def draw_oncoplot(
         ax_freq.spines[["top", "right", "left"]].set_visible(False)
         ax_freq.set_ylim(n_genes - 0.5, -0.5)
     else:
-        fig.add_subplot(gs[1, 1]).set_visible(False)
+        fig.add_subplot(gs[mat_row, 1]).set_visible(False)
 
     # ── Spacer between matrix and tracks ──────────────────────
-    if has_gap:
-        ax_gap = fig.add_subplot(gs[2, 0])
+    if gap_row is not None:
+        ax_gap = fig.add_subplot(gs[gap_row, 0])
         ax_gap.set_visible(False)
-        fig.add_subplot(gs[2, 1]).set_visible(False)
+        fig.add_subplot(gs[gap_row, 1]).set_visible(False)
 
     def _style_track(ax, label, n_samples, fontsize):
         """Apply consistent styling to data-row / annotation-track axes."""
@@ -409,7 +464,7 @@ def draw_oncoplot(
     # ── 4. Data rows (in-plot heatmaps) ────────────────────────
     if data_rows:
         for dr_idx, (dr_col, dr_values) in enumerate(data_rows.items()):
-            row_idx = _row_off + dr_idx
+            row_idx = data_start + dr_idx
             ax_dr = fig.add_subplot(gs[row_idx, 0], sharex=ax_mat)
             vals = dr_values.reindex(samples).values.astype(float)
             cm_name = data_row_cmaps.get(dr_col, "viridis")
@@ -436,7 +491,7 @@ def draw_oncoplot(
     # ── 5. Annotation tracks ──────────────────────────────────
     if clinical_cols and clinical_data is not None:
         for t_idx, col in enumerate(clinical_cols):
-            row_idx = _row_off + n_data + t_idx
+            row_idx = trk_start + t_idx
             ax_trk = fig.add_subplot(gs[row_idx, 0], sharex=ax_mat)
             values = clinical_data.reindex(samples)[col]
             var_type = clinical_types.get(col, "Categorical")
@@ -560,7 +615,8 @@ def draw_oncoplot(
     # Convert legend row height (≈ fontsize * 1.8 pt) to figure fraction
     row_frac = (fontsize * 1.8) / (fig_height * 72) if fig_height > 0 else 0
     legend_margin = n_legend_rows * row_frac * 1.4  # 1.4× padding
-    bottom = min(0.40, max(0.06, 0.02 + legend_margin))
+    _bottom_lbl = (_label_h / fig_height) if _labels_on_bottom and fig_height > 0 else 0
+    bottom = min(0.50, max(0.06, 0.02 + legend_margin + _bottom_lbl))
 
     if legend_handles:
         fig.legend(
@@ -734,6 +790,9 @@ def main():
     show_tmb = st.sidebar.checkbox("Show Mutation Burden bar", True)
     show_gene_freq = st.sidebar.checkbox("Show Gene Frequency bar", True)
     show_sample_labels = st.sidebar.checkbox("Show sample labels", False)
+    annot_pos = st.sidebar.radio(
+        "Annotation position", ["Bottom", "Top"], key="onco_annot_pos",
+    )
     fig_width = st.sidebar.slider("Figure width (in)", 8, 30, 14)
     fontsize = st.sidebar.slider("Font size", 5, 14, 8)
 
@@ -862,6 +921,7 @@ def main():
                 show_tmb=show_tmb,
                 show_gene_freq=show_gene_freq,
                 show_sample_labels=show_sample_labels,
+                annotations_position=annot_pos.lower(),
                 fig_width=fig_width,
                 fontsize=fontsize,
             )
