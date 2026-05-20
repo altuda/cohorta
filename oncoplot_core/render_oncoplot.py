@@ -305,6 +305,16 @@ def draw_oncoplot(
     )
     bottom = min(0.50, max(0.06, 0.02 + legend_margin + _bottom_lbl))
 
+    _left, _right = 0.08, 0.95
+    top_margin = 0.94
+    fig.subplots_adjust(
+        left=_left, right=_right, top=top_margin, bottom=bottom,
+    )
+
+    # Center title & legend on the matrix axes (actual position after layout)
+    pos = ax_mat.get_position()
+    _plot_center = (pos.x0 + pos.x1) / 2
+
     if legend_handles:
         fig.legend(
             handles=legend_handles,
@@ -312,7 +322,7 @@ def draw_oncoplot(
             ncol=n_legend_cols,
             fontsize=fontsize - 1,
             frameon=False,
-            bbox_to_anchor=(0.45, bottom - 0.005 - _bottom_lbl),
+            bbox_to_anchor=(_plot_center, bottom - 0.005 - _bottom_lbl),
             handlelength=1.2,
             handleheight=1.0,
             columnspacing=1.0,
@@ -320,9 +330,7 @@ def draw_oncoplot(
 
     if title is not None:
         fig.suptitle(
-            title, fontsize=fontsize + 3, fontweight="bold", y=0.99,
+            title, fontsize=fontsize + 3, fontweight="bold",
+            x=_plot_center, y=0.99,
         )
-    fig.subplots_adjust(
-        left=0.08, right=0.95, top=0.94, bottom=bottom,
-    )
     return fig

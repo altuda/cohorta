@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { HexColorPicker } from "react-colorful";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { usePalettes, usePaletteColors } from "../../api/hooks";
@@ -19,18 +19,52 @@ function ColorPopover({
   onChange: (c: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  const handleOpen = () => {
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const popH = 220;
+      setPos({
+        top: spaceBelow < popH ? rect.top - popH - 4 : rect.bottom + 4,
+        left: rect.left,
+      });
+    }
+    setOpen(!open);
+  };
+
   return (
     <div className="relative inline-block">
       <button
-        onClick={() => setOpen(!open)}
+        ref={btnRef}
+        onClick={handleOpen}
         className="w-6 h-6 rounded border border-slate-300 shrink-0"
         style={{ backgroundColor: color }}
       />
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 left-0 top-8 bg-white rounded-lg shadow-lg border p-2">
-            <HexColorPicker color={color} onChange={onChange} />
+          <div
+            className="fixed z-50 bg-white rounded-lg shadow-lg border p-2"
+            style={{ top: pos.top, left: pos.left }}
+          >
+            <HexColorPicker
+              color={color}
+              onChange={onChange}
+              style={{ width: 160, height: 120 }}
+            />
+            <input
+              type="text"
+              value={color}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (/^#[0-9a-fA-F]{0,6}$/.test(v)) onChange(v);
+              }}
+              className="mt-1 w-full text-xs font-mono px-2 py-1 border border-slate-200 rounded text-center"
+              spellCheck={false}
+            />
           </div>
         </>
       )}
@@ -59,7 +93,10 @@ export default function AnnotationTrackOptions({ col }: { col: string }) {
 
   const nPal = 10;
   const { data: paletteColors } = usePaletteColors(palette, nPal);
-  const palColors = paletteColors?.colors ?? EMPTY_ARRAY;
+  const palColors = useMemo(
+    () => [...new Set(paletteColors?.colors ?? [])],
+    [paletteColors],
+  );
 
   // Memoize the color map to avoid reading stale closures
   const existingColorMap = useMemo(() => {
@@ -178,10 +215,10 @@ export default function AnnotationTrackOptions({ col }: { col: string }) {
                       {val}
                     </span>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {palColors.map((pc, pi) => (
+                  <div className="flex flex-wrap gap-1 pl-0.5 pt-0.5">
+                    {palColors.map((pc) => (
                       <button
-                        key={pi}
+                        key={pc}
                         onClick={() =>
                           setAnnotationColor(col, {
                             ...existingColorMap,

@@ -64,7 +64,9 @@ export default function PlotSettingsPanel() {
         </label>
 
         <label className="block">
-          <span className="text-xs text-slate-500">Annotation position</span>
+          <span className="text-xs text-slate-500">
+            {hasGene ? "Annotation position" : "Sample labels position"}
+          </span>
           <div className="flex gap-3 mt-0.5">
             {["bottom", "top"].map((pos) => (
               <label key={pos} className="flex items-center gap-1 text-sm">

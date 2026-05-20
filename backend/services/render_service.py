@@ -158,6 +158,7 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
             display_names=req.display_names,
             group_boundaries=group_boundaries,
             show_sample_labels=req.show_sample_labels,
+            annotations_position=req.annotations_position,
             title=req.title,
             fig_width=req.fig_width,
             fontsize=req.fontsize,

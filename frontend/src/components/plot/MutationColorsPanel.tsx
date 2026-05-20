@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { usePalettes, usePaletteColors } from "../../api/hooks";
 import { HexColorPicker } from "react-colorful";
@@ -15,23 +15,53 @@ function MutTypeColorPicker({
   const color = useSessionStore((s) => s.mutationColors[mt] ?? defaultColor);
   const setMutationColor = useSessionStore((s) => s.setMutationColor);
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  const handleOpen = () => {
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const popH = 220;
+      setPos({
+        top: spaceBelow < popH ? rect.top - popH - 4 : rect.bottom + 4,
+        left: rect.left,
+      });
+    }
+    setOpen(!open);
+  };
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
         <div className="relative inline-block">
           <button
-            onClick={() => setOpen(!open)}
+            ref={btnRef}
+            onClick={handleOpen}
             className="w-6 h-6 rounded border border-slate-300 shrink-0"
             style={{ backgroundColor: color }}
           />
           {open && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-              <div className="absolute z-50 left-0 top-8 bg-white rounded-lg shadow-lg border p-2">
+              <div
+                className="fixed z-50 bg-white rounded-lg shadow-lg border p-2"
+                style={{ top: pos.top, left: pos.left }}
+              >
                 <HexColorPicker
                   color={color}
                   onChange={(c) => setMutationColor(mt, c)}
+                  style={{ width: 160, height: 120 }}
+                />
+                <input
+                  type="text"
+                  value={color}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (/^#[0-9a-fA-F]{0,6}$/.test(v)) setMutationColor(mt, v);
+                  }}
+                  className="mt-1 w-full text-xs font-mono px-2 py-1 border border-slate-200 rounded text-center"
+                  spellCheck={false}
                 />
               </div>
             </>
@@ -39,10 +69,10 @@ function MutTypeColorPicker({
         </div>
         <span className="text-xs text-slate-700 truncate flex-1">{mt}</span>
       </div>
-      <div className="flex flex-wrap gap-1">
-        {palColors.map((pc, pi) => (
+      <div className="flex flex-wrap gap-1 pl-0.5 pt-0.5">
+        {palColors.map((pc) => (
           <button
-            key={pi}
+            key={pc}
             onClick={() => setMutationColor(mt, pc)}
             className={`w-5 h-5 rounded-sm border-2 transition-transform ${
               color === pc
@@ -62,7 +92,6 @@ export default function MutationColorsPanel() {
   const roles = useSessionStore((s) => s.roles);
   const mutationTypes = useSessionStore((s) => s.mutationTypes);
   const mutationColors = useSessionStore((s) => s.mutationColors);
-  const setMutationColor = useSessionStore((s) => s.setMutationColor);
   const setMutationColorsBatch = useSessionStore((s) => s.setMutationColorsBatch);
 
   const hasGene = Object.values(roles).includes("Gene / Feature");
@@ -74,6 +103,10 @@ export default function MutationColorsPanel() {
 
   const n = Math.max(mutationTypes.length, 1);
   const { data: paletteColors } = usePaletteColors(palette, n);
+  const dedupedPalColors = useMemo(
+    () => [...new Set(paletteColors?.colors ?? [])],
+    [paletteColors],
+  );
 
   // Apply single color or palette defaults — single batch update
   useEffect(() => {
@@ -151,7 +184,7 @@ export default function MutationColorsPanel() {
                       (paletteColors?.colors.length || 1)
                   ] ?? "#808080"
                 }
-                palColors={paletteColors?.colors ?? []}
+                palColors={dedupedPalColors}
               />
             ))}
             {mutationTypes.length > 20 && (

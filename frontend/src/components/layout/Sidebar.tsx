@@ -1,5 +1,5 @@
 import { useSessionStore } from "../../stores/useSessionStore";
-import { usePalettes, usePaletteColors } from "../../api/hooks";
+import { usePaletteColors } from "../../api/hooks";
 import ColumnRolePanel from "../columns/ColumnRolePanel";
 import TrackOrderPanel from "../columns/TrackOrderPanel";
 import PlotSettingsPanel from "../plot/PlotSettingsPanel";

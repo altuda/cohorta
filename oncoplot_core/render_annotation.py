@@ -25,6 +25,7 @@ def draw_annotation_plot(
     display_names=None,
     group_boundaries=None,
     show_sample_labels=False,
+    annotations_position="bottom",
     title=None,
     fig_width=14,
     fontsize=8,
@@ -51,24 +52,33 @@ def draw_annotation_plot(
     trk_h = 0.6
 
     _labels_visible = show_sample_labels and n_samples <= 80
+    # In annotation-only mode the "position" setting controls sample labels:
+    # "top" → labels on top of the first track
+    # "bottom" → labels below the last track
+    _labels_on_top = _labels_visible and annotations_position == "top"
+    _labels_on_bottom = _labels_visible and annotations_position == "bottom"
     if _labels_visible:
         _max_lbl = max((len(str(s)) for s in samples), default=0)
         _label_h = min(2.5, _max_lbl * max(fontsize - 2, 4) * 0.5 / 72)
     else:
         _label_h = 0.0
 
-    # Layout: header | data rows | tracks
+    # Layout: header | (label spacer if top) | data rows | tracks
+    _lbl_spacer_h = _label_h if _labels_on_top else 0
     height_ratios = (
         [header_h]
+        + ([_lbl_spacer_h] if _labels_on_top else [])
         + [data_h] * n_data
         + [trk_h] * n_tracks
     )
     header_row = 0
-    data_start = 1
-    trk_start = 1 + n_data
+    _lbl_spacer = 1 if _labels_on_top else None
+    _off = int(_labels_on_top)
+    data_start = 1 + _off
+    trk_start = 1 + _off + n_data
 
     fig_height = sum(height_ratios) + 1.8
-    if _labels_visible:
+    if _labels_on_bottom:
         fig_height += _label_h
 
     n_gs_rows = len(height_ratios)
@@ -92,6 +102,10 @@ def draw_annotation_plot(
     fig.add_subplot(gs[header_row, 0]).set_visible(False)
     fig.add_subplot(gs[header_row, 1]).set_visible(False)
 
+    if _lbl_spacer is not None:
+        fig.add_subplot(gs[_lbl_spacer, 0]).set_visible(False)
+        fig.add_subplot(gs[_lbl_spacer, 1]).set_visible(False)
+
     # ── Data rows ───────────────────────────────────────────────
     render_data_rows(
         fig, gs, data_rows, data_row_cmaps, display_names,
@@ -111,9 +125,10 @@ def draw_annotation_plot(
     )
     if _first_ax is None and len(all_axes) > _n_before:
         _first_ax = all_axes[_n_before]
+    _last_ax = all_axes[-1] if all_axes else None
 
-    # ── Sample labels on first track ────────────────────────────
-    if _labels_visible and _first_ax is not None:
+    # ── Sample labels ─────────────────────────────────────────
+    if _labels_on_top and _first_ax is not None:
         _first_ax.set_xticks(range(n_samples))
         _first_ax.tick_params(
             axis="x", top=True, labeltop=True,
@@ -121,6 +136,15 @@ def draw_annotation_plot(
         )
         _first_ax.set_xticklabels(
             samples, rotation=90, fontsize=max(fontsize - 2, 4), ha="left",
+        )
+    elif _labels_on_bottom and _last_ax is not None:
+        _last_ax.set_xticks(range(n_samples))
+        _last_ax.tick_params(
+            axis="x", top=False, labeltop=False,
+            bottom=True, labelbottom=True,
+        )
+        _last_ax.set_xticklabels(
+            samples, rotation=90, fontsize=max(fontsize - 2, 4), ha="right",
         )
 
     # ── Group separators & labels ───────────────────────────────
@@ -146,7 +170,25 @@ def draw_annotation_plot(
     )
     row_frac = (fontsize * 1.8) / (fig_height * 72) if fig_height > 0 else 0
     legend_margin = n_legend_rows * row_frac * 1.4
-    bottom = min(0.50, max(0.06, 0.02 + legend_margin))
+    _bottom_lbl = (
+        (_label_h / fig_height)
+        if _labels_on_bottom and fig_height > 0
+        else 0
+    )
+    bottom = min(0.50, max(0.06, 0.02 + legend_margin + _bottom_lbl))
+
+    _left, _right = 0.08, 0.95
+    top_margin = 0.94
+    fig.subplots_adjust(
+        left=_left, right=_right, top=top_margin, bottom=bottom,
+    )
+
+    # Center title & legend on the first track axes (actual position after layout)
+    if _first_ax is not None:
+        pos = _first_ax.get_position()
+        _plot_center = (pos.x0 + pos.x1) / 2
+    else:
+        _plot_center = 0.5
 
     if legend_handles:
         fig.legend(
@@ -155,7 +197,7 @@ def draw_annotation_plot(
             ncol=n_legend_cols,
             fontsize=fontsize - 1,
             frameon=False,
-            bbox_to_anchor=(0.45, bottom - 0.005),
+            bbox_to_anchor=(_plot_center, bottom - 0.005 - _bottom_lbl),
             handlelength=1.2,
             handleheight=1.0,
             columnspacing=1.0,
@@ -163,9 +205,7 @@ def draw_annotation_plot(
 
     if title is not None:
         fig.suptitle(
-            title, fontsize=fontsize + 3, fontweight="bold", y=0.99,
+            title, fontsize=fontsize + 3, fontweight="bold",
+            x=_plot_center, y=0.99,
         )
-    fig.subplots_adjust(
-        left=0.08, right=0.95, top=0.94, bottom=bottom,
-    )
     return fig
