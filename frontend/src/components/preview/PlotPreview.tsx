@@ -1,4 +1,5 @@
 import { useSessionStore } from "../../stores/useSessionStore";
+import { withBase } from "../../api/client";
 
 export default function PlotPreview({ isRendering }: { isRendering?: boolean }) {
   const pngUrl = useSessionStore((s) => s.pngUrl);
@@ -10,7 +11,7 @@ export default function PlotPreview({ isRendering }: { isRendering?: boolean }) 
     <div className="relative border border-slate-200 rounded-xl overflow-hidden bg-white">
       {pngUrl && (
         <img
-          src={`${pngUrl}?v=${renderVersion}`}
+          src={`${withBase(pngUrl)}?v=${renderVersion}`}
           alt="Oncoplot"
           className={`w-full transition-opacity ${isRendering ? "opacity-40" : "opacity-100"}`}
         />
