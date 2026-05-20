@@ -97,7 +97,12 @@ def _get_cmap(name):
 def _palette_colors(cmap, n):
     """Extract *n* evenly-spaced colours from a colormap."""
     if hasattr(cmap, "colors"):
-        return [to_hex(cmap.colors[i % len(cmap.colors)]) for i in range(n)]
+        k = len(cmap.colors)
+        if n >= k:
+            return [to_hex(cmap.colors[i % k]) for i in range(n)]
+        # Spread selections evenly across the palette for better variety
+        indices = np.linspace(0, k - 1, n, dtype=int)
+        return [to_hex(cmap.colors[idx]) for idx in indices]
     return [to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
 
 
@@ -157,47 +162,155 @@ def build_mutation_matrix(df, sample_col, gene_col, mut_col):
     return matrix.loc[freq.index]
 
 
-def sort_samples(matrix, group_series=None):
-    """Waterfall-sort samples.  When *group_series* is provided, sort
-    within each group and return boundaries for visual separators.
+def sort_samples(matrix, group_series_list=None):
+    """Waterfall-sort samples with optional multi-level hierarchical grouping.
 
-    Returns ``(sorted_sample_list, OrderedDict {label: (start, end)})``.
+    Parameters
+    ----------
+    matrix : DataFrame or None
+        Gene x sample mutation matrix.  ``None`` in annotation-only mode.
+    group_series_list : list[Series] or None
+        Ordered list of grouping Series (level 0 = outermost).
+
+    Returns
+    -------
+    sorted_samples : list[str]
+    group_boundaries : dict[int, list[tuple[str, int, int]]]
+        Keys are level indices.  Values are lists of
+        ``(display_label, start_col, end_col)``.
     """
-    binary = matrix.notna().astype(int).T
-    sort_cols = list(binary.columns)
+    if matrix is not None:
+        binary = matrix.notna().astype(int).T
+        sort_cols = list(binary.columns)
+        all_samples = binary.index.tolist()
+    else:
+        binary = None
+        sort_cols = []
+        all_samples = []
+        if group_series_list:
+            idx = group_series_list[0].index
+            for gs in group_series_list[1:]:
+                idx = idx.union(gs.index)
+            all_samples = idx.tolist()
 
-    if group_series is None:
-        idx = binary.sort_values(by=sort_cols, ascending=False).index.tolist()
-        return idx, OrderedDict()
+    if not group_series_list:
+        if binary is not None:
+            idx = binary.sort_values(by=sort_cols, ascending=False).index.tolist()
+        else:
+            idx = all_samples
+        return idx, {}
 
-    groups = group_series.reindex(binary.index)
-    unique_groups = list(groups.dropna().unique())
+    def _sort_recursive(sample_list, level):
+        """Sort *sample_list* by group at *level*, recurse into inner levels."""
+        if level >= len(group_series_list):
+            # Leaf: waterfall-sort if matrix exists, else keep order
+            if binary is not None and sample_list:
+                sub = binary.loc[binary.index.intersection(sample_list)]
+                return sub.sort_values(
+                    by=sort_cols, ascending=False,
+                ).index.tolist()
+            return list(sample_list)
 
-    burden = {}
-    for g in unique_groups:
-        members = groups[groups == g].index.intersection(binary.index)
-        burden[g] = int(binary.loc[members].values.sum())
-    sorted_groups = sorted(unique_groups, key=lambda g: -burden.get(g, 0))
+        gs = group_series_list[level]
+        groups = gs.reindex(sample_list)
+
+        unique_groups = list(groups.dropna().unique())
+        # Sort groups by mutation burden (desc) or member count
+        if binary is not None:
+            def _burden(g):
+                m = groups[groups == g].index.intersection(binary.index)
+                return -int(binary.loc[m].values.sum()) if len(m) else 0
+            unique_groups.sort(key=_burden)
+        else:
+            unique_groups.sort(key=lambda g: -int((groups == g).sum()))
+
+        ordered = []
+        boundaries_at_level = []
+        offset = len(ordered)  # will be updated via caller
+
+        for g in unique_groups:
+            members = groups[groups == g].index.tolist()
+            if not members:
+                continue
+            sub_sorted = _sort_recursive(members, level + 1)
+            boundaries_at_level.append((str(g), len(ordered), len(ordered) + len(sub_sorted)))
+            ordered.extend(sub_sorted)
+
+        # Samples with NaN at this level
+        rest = [s for s in sample_list if s not in set(ordered)]
+        if rest:
+            sub_sorted = _sort_recursive(rest, level + 1)
+            boundaries_at_level.append(("Other", len(ordered), len(ordered) + len(sub_sorted)))
+            ordered.extend(sub_sorted)
+
+        return ordered, boundaries_at_level
+
+    # Run recursive sort from level 0
+    # We need boundaries at ALL levels, so run per-level boundary collection
+    # Pre-compute a global sort rank for every level so that inner
+    # groups keep the same order across all parent groups.
+    _global_rank = {}
+    for _lvl, _gs in enumerate(group_series_list):
+        _uvals = list(_gs.dropna().unique())
+        if binary is not None:
+            def _global_burden(g, _s=_gs):
+                m = _s[_s == g].index.intersection(binary.index)
+                return -int(binary.loc[m].values.sum()) if len(m) else 0
+            _uvals.sort(key=_global_burden)
+        else:
+            def _global_count(g, _s=_gs):
+                return -int((_s == g).sum())
+            _uvals.sort(key=_global_count)
+        _global_rank[_lvl] = {g: i for i, g in enumerate(_uvals)}
 
     sorted_samples = []
-    boundaries = OrderedDict()
-    offset = 0
-    for g in sorted_groups:
-        members = groups[groups == g].index.intersection(binary.index).tolist()
-        if not members:
-            continue
-        sub = binary.loc[members].sort_values(by=sort_cols, ascending=False)
-        boundaries[str(g)] = (offset, offset + len(sub))
-        sorted_samples.extend(sub.index.tolist())
-        offset += len(sub)
+    all_boundaries = {}
 
-    rest = [s for s in binary.index if s not in sorted_samples]
-    if rest:
-        sub = binary.loc[rest].sort_values(by=sort_cols, ascending=False)
-        boundaries["Other"] = (offset, offset + len(sub))
-        sorted_samples.extend(sub.index.tolist())
+    def _collect(sample_list, level, global_offset):
+        """Sort and collect boundaries at all levels."""
+        if level >= len(group_series_list):
+            if binary is not None and sample_list:
+                sub = binary.loc[binary.index.intersection(sample_list)]
+                return sub.sort_values(
+                    by=sort_cols, ascending=False,
+                ).index.tolist()
+            return list(sample_list)
 
-    return sorted_samples, boundaries
+        gs = group_series_list[level]
+        groups = gs.reindex(sample_list)
+        unique_groups = list(groups.dropna().unique())
+
+        rank = _global_rank.get(level, {})
+        unique_groups.sort(key=lambda g: rank.get(g, 999))
+
+        ordered = []
+        local_offset = 0
+
+        for g in unique_groups:
+            members = groups[groups == g].index.tolist()
+            if not members:
+                continue
+            sub_sorted = _collect(members, level + 1, global_offset + local_offset)
+            all_boundaries.setdefault(level, []).append(
+                (str(g), global_offset + local_offset,
+                 global_offset + local_offset + len(sub_sorted))
+            )
+            ordered.extend(sub_sorted)
+            local_offset += len(sub_sorted)
+
+        rest = [s for s in sample_list if s not in set(ordered)]
+        if rest:
+            sub_sorted = _collect(rest, level + 1, global_offset + local_offset)
+            all_boundaries.setdefault(level, []).append(
+                ("Other", global_offset + local_offset,
+                 global_offset + local_offset + len(sub_sorted))
+            )
+            ordered.extend(sub_sorted)
+
+        return ordered
+
+    sorted_samples = _collect(all_samples, 0, 0)
+    return sorted_samples, all_boundaries
 
 
 # ────────────────────────────────────────────────────────────────
@@ -213,6 +326,7 @@ def draw_oncoplot(
     data_rows=None,
     data_row_cmaps=None,
     display_names=None,
+    track_options=None,
     group_boundaries=None,
     show_tmb=True,
     show_gene_freq=True,
@@ -233,7 +347,8 @@ def draw_oncoplot(
     data_rows = data_rows or {}
     data_row_cmaps = data_row_cmaps or {}
     display_names = display_names or {}
-    group_boundaries = group_boundaries or OrderedDict()
+    track_options = track_options or {}
+    group_boundaries = group_boundaries or {}
 
     genes = matrix.index.tolist()
     samples = matrix.columns.tolist()
@@ -266,7 +381,9 @@ def draw_oncoplot(
         norm_mat = None
 
     # ── Figure geometry ─────────────────────────────────────────
-    tmb_h = 2.0 if show_tmb else 0.001
+    _n_grp_levels = len(group_boundaries)
+    _grp_label_h = _n_grp_levels * fontsize * 2.5 / 72  # extra space for stacked labels
+    tmb_h = (2.0 if show_tmb else 0.001) + _grp_label_h
     mat_h = max(n_genes * 0.45, 3.0)
     data_h = 0.6
     trk_h = 0.6
@@ -497,6 +614,8 @@ def draw_oncoplot(
             ax_trk = fig.add_subplot(gs[row_idx, 0], sharex=ax_mat)
             values = clinical_data.reindex(samples)[col]
             var_type = clinical_types.get(col, "Categorical")
+            _opts = track_options.get(col, {})
+            _tile_color = _opts.get("tile_color")
 
             if var_type == "Categorical":
                 unique_vals = sorted(values.dropna().unique(), key=str)
@@ -510,12 +629,15 @@ def draw_oncoplot(
                     ]
                 ).reshape(1, -1)
                 col_map = clinical_colors.get(col, {})
-                tc_list = [
-                    col_map.get(
-                        v, FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
-                    )
-                    for i, v in enumerate(unique_vals)
-                ]
+                if _tile_color:
+                    tc_list = [_tile_color] * max(len(unique_vals), 1)
+                else:
+                    tc_list = [
+                        col_map.get(
+                            v, FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
+                        )
+                        for i, v in enumerate(unique_vals)
+                    ]
                 tcmap = ListedColormap(tc_list)
                 tcmap.set_bad(color="#F0F0F0")
                 tb = np.arange(-0.5, len(unique_vals) + 0.5, 1)
@@ -534,23 +656,59 @@ def draw_oncoplot(
                     pd.to_numeric(values, errors="coerce")
                     .values.astype(float)
                 )
-                cm_name = clinical_colors.get(col, "viridis")
-                trk_cmap = _get_cmap(cm_name).copy()
-                trk_cmap.set_bad(color="#F0F0F0")
-                _ct_masked = np.ma.array(num_vals, mask=np.isnan(num_vals)).reshape(1, -1)
                 _ct_x = np.arange(n_samples + 1) - 0.5
                 _ct_y = np.array([-0.5, 0.5])
-                ax_trk.pcolormesh(
-                    _ct_x, _ct_y, _ct_masked,
-                    cmap=trk_cmap, edgecolors="white", linewidth=0.3,
-                )
+                if _tile_color:
+                    _flat_cmap = ListedColormap([_tile_color])
+                    _flat_cmap.set_bad(color="#F0F0F0")
+                    _ct_flat = np.ma.array(
+                        np.zeros(len(num_vals)),
+                        mask=np.isnan(num_vals),
+                    ).reshape(1, -1)
+                    ax_trk.pcolormesh(
+                        _ct_x, _ct_y, _ct_flat,
+                        cmap=_flat_cmap, vmin=-0.5, vmax=0.5,
+                        edgecolors="white", linewidth=0.3,
+                    )
+                else:
+                    cm_name = clinical_colors.get(col, "viridis")
+                    trk_cmap = _get_cmap(cm_name).copy()
+                    trk_cmap.set_bad(color="#F0F0F0")
+                    _ct_masked = np.ma.array(
+                        num_vals, mask=np.isnan(num_vals),
+                    ).reshape(1, -1)
+                    ax_trk.pcolormesh(
+                        _ct_x, _ct_y, _ct_masked,
+                        cmap=trk_cmap, edgecolors="white", linewidth=0.3,
+                    )
                 ax_trk.set_ylim(-0.5, 0.5)
+
+            # Show values as text centred in each tile
+            if _opts.get("show_values"):
+                _txt_color = _opts.get("text_color", "#000000")
+                for j, v in enumerate(values):
+                    if pd.notna(v):
+                        if isinstance(v, (int, float, np.integer, np.floating)):
+                            _txt = (
+                                str(int(v))
+                                if float(v) == int(float(v))
+                                else f"{v:.1f}"
+                            )
+                        else:
+                            _txt = str(v)
+                        ax_trk.text(
+                            j, 0, _txt,
+                            ha="center", va="center",
+                            fontsize=max(fontsize - 2, 3),
+                            color=_txt_color,
+                            clip_on=True,
+                        )
 
             label = display_names.get(col, col)
             _style_track(ax_trk, label, n_samples, fontsize)
             all_axes.append(ax_trk)
 
-            if var_type == "Continuous":
+            if var_type == "Continuous" and not _tile_color:
                 ax_cb = fig.add_subplot(gs[row_idx, 1])
                 ax_cb.set_axis_off()
                 valid = num_vals[~np.isnan(num_vals)]
@@ -567,32 +725,54 @@ def draw_oncoplot(
 
     # ── 6. Group separators & labels ───────────────────────────
     if group_boundaries:
-        for _grp, (start, _end) in group_boundaries.items():
-            if start > 0:
-                for ax in all_axes:
-                    if ax.get_visible():
-                        ax.axvline(
-                            start - 0.5,
-                            color="black",
-                            linewidth=1.5,
-                            zorder=10,
-                        )
-        # Labels above the TMB bar (or above the matrix)
+        n_levels = len(group_boundaries)
+        # Separator widths: outer = thick, inner = thin
+        if n_levels == 1:
+            _sep_widths = [1.5]
+        else:
+            _sep_widths = [
+                2.0 - (2.0 - 0.6) * i / (n_levels - 1)
+                for i in range(n_levels)
+            ]
+        _sep_grays = [0, 80, 128, 160]  # up to 4 levels
+
+        for lvl in sorted(group_boundaries):
+            w = _sep_widths[min(lvl, len(_sep_widths) - 1)]
+            gv = _sep_grays[min(lvl, len(_sep_grays) - 1)]
+            color = f"#{gv:02x}{gv:02x}{gv:02x}"
+            for (_lbl, start, _end) in group_boundaries[lvl]:
+                if start > 0:
+                    for ax in all_axes:
+                        if ax.get_visible():
+                            ax.axvline(
+                                start - 0.5,
+                                color=color,
+                                linewidth=w,
+                                zorder=10 + (n_levels - lvl),
+                            )
+
+        # Stacked labels above TMB / matrix
         label_ax = ax_tmb if show_tmb else ax_mat
         ylim = label_ax.get_ylim()
         y_top = max(ylim) if show_tmb else min(ylim)
-        for grp, (start, end) in group_boundaries.items():
-            center = (start + end - 1) / 2.0
-            label_ax.text(
-                center,
-                y_top,
-                str(grp),
-                ha="center",
-                va="bottom",
-                fontsize=fontsize,
-                fontweight="bold",
-                clip_on=False,
-            )
+
+        for lvl in sorted(group_boundaries):
+            # Outermost level = highest offset
+            row_off = (n_levels - 1 - lvl)
+            y_pts = (row_off + 1) * fontsize * 2.0
+            for (lbl, start, end) in group_boundaries[lvl]:
+                center = (start + end - 1) / 2.0
+                label_ax.annotate(
+                    lbl,
+                    xy=(center, y_top),
+                    xytext=(0, y_pts),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=max(fontsize - min(lvl, 2), 5),
+                    fontweight="bold" if lvl == 0 else "semibold",
+                    clip_on=False,
+                )
 
     # ── 7. Legend ──────────────────────────────────────────────
     legend_handles = [
@@ -602,6 +782,9 @@ def draw_oncoplot(
     if clinical_cols and clinical_data is not None:
         for col in clinical_cols:
             if clinical_types.get(col, "Categorical") == "Categorical":
+                _opts = track_options.get(col, {})
+                if _opts.get("tile_color"):
+                    continue
                 col_map = clinical_colors.get(col, {})
                 label_name = display_names.get(col, col)
                 vals = sorted(clinical_data[col].dropna().unique(), key=str)
@@ -647,6 +830,366 @@ def draw_oncoplot(
             fontsize=fontsize + 3,
             fontweight="bold",
             y=0.99,
+        )
+    fig.subplots_adjust(
+        left=0.08, right=0.95, top=0.94, bottom=bottom,
+    )
+    return fig
+
+
+def draw_annotation_plot(
+    samples,
+    clinical_data=None,
+    clinical_cols=None,
+    clinical_types=None,
+    clinical_colors=None,
+    track_options=None,
+    data_rows=None,
+    data_row_cmaps=None,
+    display_names=None,
+    group_boundaries=None,
+    show_sample_labels=False,
+    title=None,
+    fig_width=14,
+    fontsize=8,
+):
+    """Render annotation-only plot (no mutation matrix)."""
+    clinical_cols = clinical_cols or []
+    clinical_types = clinical_types or {}
+    clinical_colors = clinical_colors or {}
+    data_rows = data_rows or {}
+    data_row_cmaps = data_row_cmaps or {}
+    display_names = display_names or {}
+    track_options = track_options or {}
+    group_boundaries = group_boundaries or {}
+
+    n_samples = len(samples)
+    n_tracks = len(clinical_cols)
+    n_data = len(data_rows)
+
+    # ── Figure geometry ─────────────────────────────────────────
+    _n_grp_levels = len(group_boundaries)
+    _grp_label_h = _n_grp_levels * fontsize * 2.5 / 72
+    header_h = max(0.001, _grp_label_h)
+    data_h = 0.6
+    trk_h = 0.6
+
+    _labels_visible = show_sample_labels and n_samples <= 80
+    if _labels_visible:
+        _max_lbl = max((len(str(s)) for s in samples), default=0)
+        _label_h = min(2.5, _max_lbl * max(fontsize - 2, 4) * 0.5 / 72)
+    else:
+        _label_h = 0.0
+
+    # Layout: header | data rows | tracks
+    height_ratios = (
+        [header_h]
+        + [data_h] * n_data
+        + [trk_h] * n_tracks
+    )
+    header_row = 0
+    data_start = 1
+    trk_start = 1 + n_data
+
+    fig_height = sum(height_ratios) + 1.8
+    if _labels_visible:
+        fig_height += _label_h
+
+    n_gs_rows = len(height_ratios)
+    n_gs_cols = 2
+    width_ratios = [max(n_samples * 0.25, 6), 3]
+
+    fig = plt.figure(figsize=(fig_width, fig_height))
+    gs = GridSpec(
+        nrows=n_gs_rows,
+        ncols=n_gs_cols,
+        figure=fig,
+        height_ratios=height_ratios,
+        width_ratios=width_ratios,
+        hspace=0.04,
+        wspace=0.02,
+    )
+
+    all_axes = []
+
+    # ── Header (invisible, reserves space for group labels) ─────
+    ax_hdr = fig.add_subplot(gs[header_row, 0])
+    ax_hdr.set_xlim(-0.5, n_samples - 0.5)
+    ax_hdr.set_visible(False)
+    fig.add_subplot(gs[header_row, 1]).set_visible(False)
+
+    def _style_trk(ax, label):
+        for j in range(n_samples + 1):
+            ax.axvline(j - 0.5, color="white", linewidth=0.3)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.4)
+            spine.set_color("#999999")
+        ax.set_yticks([0])
+        ax.set_yticklabels([label], fontsize=fontsize, fontweight="semibold")
+        ax.tick_params(axis="x", bottom=False, labelbottom=False)
+        ax.tick_params(axis="y", length=0)
+        ax.set_xlim(-0.5, n_samples - 0.5)
+
+    _first_ax = None
+
+    # ── Data rows ───────────────────────────────────────────────
+    if data_rows:
+        for dr_idx, (dr_col, dr_values) in enumerate(data_rows.items()):
+            row_idx = data_start + dr_idx
+            ax_dr = fig.add_subplot(gs[row_idx, 0])
+            if _first_ax is None:
+                _first_ax = ax_dr
+            vals = dr_values.reindex(samples).values.astype(float)
+            cm_name = data_row_cmaps.get(dr_col, "viridis")
+            dr_cmap = _get_cmap(cm_name).copy()
+            dr_cmap.set_bad(color="#F0F0F0")
+            _dr_masked = np.ma.array(vals, mask=np.isnan(vals)).reshape(1, -1)
+            _dr_x = np.arange(n_samples + 1) - 0.5
+            _dr_y = np.array([-0.5, 0.5])
+            ax_dr.pcolormesh(
+                _dr_x, _dr_y, _dr_masked,
+                cmap=dr_cmap, edgecolors="white", linewidth=0.3,
+            )
+            ax_dr.set_ylim(-0.5, 0.5)
+            label = display_names.get(dr_col, dr_col)
+            _style_trk(ax_dr, label)
+            all_axes.append(ax_dr)
+
+            ax_cb = fig.add_subplot(gs[row_idx, 1])
+            ax_cb.set_axis_off()
+            valid = vals[~np.isnan(vals)]
+            if len(valid) > 0:
+                _dr_sm = ScalarMappable(
+                    cmap=dr_cmap,
+                    norm=Normalize(vmin=np.nanmin(vals), vmax=np.nanmax(vals)),
+                )
+                cb = fig.colorbar(_dr_sm, ax=ax_cb, fraction=0.9, aspect=8,
+                                  pad=0.05, location="left")
+                cb.ax.tick_params(labelsize=fontsize - 1)
+
+    # ── Annotation tracks ───────────────────────────────────────
+    if clinical_cols and clinical_data is not None:
+        for t_idx, col in enumerate(clinical_cols):
+            row_idx = trk_start + t_idx
+            ax_trk = fig.add_subplot(gs[row_idx, 0])
+            if _first_ax is None:
+                _first_ax = ax_trk
+            values = clinical_data.reindex(samples)[col]
+            var_type = clinical_types.get(col, "Categorical")
+            _opts = track_options.get(col, {})
+            _tile_color = _opts.get("tile_color")
+
+            if var_type == "Categorical":
+                unique_vals = sorted(values.dropna().unique(), key=str)
+                val_to_int = {v: i for i, v in enumerate(unique_vals)}
+                numeric_row = np.array(
+                    [
+                        val_to_int[v]
+                        if pd.notna(v) and v in val_to_int
+                        else np.nan
+                        for v in values
+                    ]
+                ).reshape(1, -1)
+                col_map = clinical_colors.get(col, {})
+                if _tile_color:
+                    tc_list = [_tile_color] * max(len(unique_vals), 1)
+                else:
+                    tc_list = [
+                        col_map.get(
+                            v, FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
+                        )
+                        for i, v in enumerate(unique_vals)
+                    ]
+                tcmap = ListedColormap(tc_list)
+                tcmap.set_bad(color="#F0F0F0")
+                tb = np.arange(-0.5, len(unique_vals) + 0.5, 1)
+                tnorm = BoundaryNorm(tb, len(unique_vals))
+                _tc_masked = np.ma.array(numeric_row, mask=np.isnan(numeric_row))
+                _tc_x = np.arange(n_samples + 1) - 0.5
+                _tc_y = np.array([-0.5, 0.5])
+                ax_trk.pcolormesh(
+                    _tc_x, _tc_y, _tc_masked,
+                    cmap=tcmap, norm=tnorm,
+                    edgecolors="white", linewidth=0.3,
+                )
+                ax_trk.set_ylim(-0.5, 0.5)
+            else:
+                num_vals = (
+                    pd.to_numeric(values, errors="coerce")
+                    .values.astype(float)
+                )
+                _ct_x = np.arange(n_samples + 1) - 0.5
+                _ct_y = np.array([-0.5, 0.5])
+                if _tile_color:
+                    _flat_cmap = ListedColormap([_tile_color])
+                    _flat_cmap.set_bad(color="#F0F0F0")
+                    _ct_flat = np.ma.array(
+                        np.zeros(len(num_vals)),
+                        mask=np.isnan(num_vals),
+                    ).reshape(1, -1)
+                    ax_trk.pcolormesh(
+                        _ct_x, _ct_y, _ct_flat,
+                        cmap=_flat_cmap, vmin=-0.5, vmax=0.5,
+                        edgecolors="white", linewidth=0.3,
+                    )
+                else:
+                    cm_name = clinical_colors.get(col, "viridis")
+                    trk_cmap = _get_cmap(cm_name).copy()
+                    trk_cmap.set_bad(color="#F0F0F0")
+                    _ct_masked = np.ma.array(
+                        num_vals, mask=np.isnan(num_vals),
+                    ).reshape(1, -1)
+                    ax_trk.pcolormesh(
+                        _ct_x, _ct_y, _ct_masked,
+                        cmap=trk_cmap, edgecolors="white", linewidth=0.3,
+                    )
+                ax_trk.set_ylim(-0.5, 0.5)
+
+            if _opts.get("show_values"):
+                _txt_color = _opts.get("text_color", "#000000")
+                for j, v in enumerate(values):
+                    if pd.notna(v):
+                        if isinstance(v, (int, float, np.integer, np.floating)):
+                            _txt = (
+                                str(int(v))
+                                if float(v) == int(float(v))
+                                else f"{v:.1f}"
+                            )
+                        else:
+                            _txt = str(v)
+                        ax_trk.text(
+                            j, 0, _txt,
+                            ha="center", va="center",
+                            fontsize=max(fontsize - 2, 3),
+                            color=_txt_color,
+                            clip_on=True,
+                        )
+
+            label = display_names.get(col, col)
+            _style_trk(ax_trk, label)
+            all_axes.append(ax_trk)
+
+            if var_type == "Continuous" and not _tile_color:
+                ax_cb = fig.add_subplot(gs[row_idx, 1])
+                ax_cb.set_axis_off()
+                valid = num_vals[~np.isnan(num_vals)]
+                if len(valid) > 0:
+                    _ct_sm = ScalarMappable(
+                        cmap=trk_cmap,
+                        norm=Normalize(vmin=np.nanmin(num_vals),
+                                       vmax=np.nanmax(num_vals)),
+                    )
+                    cb = fig.colorbar(_ct_sm, ax=ax_cb, fraction=0.9,
+                                      aspect=8, pad=0.05, location="left")
+                    cb.ax.tick_params(labelsize=fontsize - 1)
+            else:
+                fig.add_subplot(gs[row_idx, 1]).set_visible(False)
+
+    # ── Sample labels on first track ────────────────────────────
+    if _labels_visible and _first_ax is not None:
+        _first_ax.set_xticks(range(n_samples))
+        _first_ax.tick_params(
+            axis="x", top=True, labeltop=True,
+            bottom=False, labelbottom=False,
+        )
+        _first_ax.set_xticklabels(
+            samples, rotation=90, fontsize=max(fontsize - 2, 4), ha="left",
+        )
+
+    # ── Group separators & labels ───────────────────────────────
+    if group_boundaries:
+        n_levels = len(group_boundaries)
+        if n_levels == 1:
+            _sep_widths = [1.5]
+        else:
+            _sep_widths = [
+                2.0 - (2.0 - 0.6) * i / (n_levels - 1)
+                for i in range(n_levels)
+            ]
+        _sep_grays = [0, 80, 128, 160]
+
+        for lvl in sorted(group_boundaries):
+            w = _sep_widths[min(lvl, len(_sep_widths) - 1)]
+            gv = _sep_grays[min(lvl, len(_sep_grays) - 1)]
+            color = f"#{gv:02x}{gv:02x}{gv:02x}"
+            for (_lbl, start, _end) in group_boundaries[lvl]:
+                if start > 0:
+                    for ax in all_axes:
+                        if ax.get_visible():
+                            ax.axvline(
+                                start - 0.5,
+                                color=color,
+                                linewidth=w,
+                                zorder=10 + (n_levels - lvl),
+                            )
+
+        # Stacked labels above first visible axis
+        label_ax = _first_ax
+        if label_ax is not None:
+            ylim = label_ax.get_ylim()
+            y_top = max(ylim)
+            for lvl in sorted(group_boundaries):
+                row_off = (n_levels - 1 - lvl)
+                y_pts = (row_off + 1) * fontsize * 2.0
+                for (lbl, start, end) in group_boundaries[lvl]:
+                    center = (start + end - 1) / 2.0
+                    label_ax.annotate(
+                        lbl,
+                        xy=(center, y_top),
+                        xytext=(0, y_pts),
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                        fontsize=max(fontsize - min(lvl, 2), 5),
+                        fontweight="bold" if lvl == 0 else "semibold",
+                        clip_on=False,
+                    )
+
+    # ── Legend ───────────────────────────────────────────────────
+    legend_handles = []
+    if clinical_cols and clinical_data is not None:
+        for col in clinical_cols:
+            if clinical_types.get(col, "Categorical") == "Categorical":
+                _opts = track_options.get(col, {})
+                if _opts.get("tile_color"):
+                    continue
+                col_map = clinical_colors.get(col, {})
+                label_name = display_names.get(col, col)
+                vals = sorted(clinical_data[col].dropna().unique(), key=str)
+                for i, v in enumerate(vals):
+                    c = col_map.get(
+                        v, FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
+                    )
+                    legend_handles.append(
+                        mpatches.Patch(color=c, label=f"{label_name}: {v}")
+                    )
+
+    n_legend_cols = min(5, len(legend_handles)) if legend_handles else 1
+    n_legend_rows = (
+        (len(legend_handles) + n_legend_cols - 1) // n_legend_cols
+        if legend_handles else 0
+    )
+    row_frac = (fontsize * 1.8) / (fig_height * 72) if fig_height > 0 else 0
+    legend_margin = n_legend_rows * row_frac * 1.4
+    bottom = min(0.50, max(0.06, 0.02 + legend_margin))
+
+    if legend_handles:
+        fig.legend(
+            handles=legend_handles,
+            loc="upper center",
+            ncol=n_legend_cols,
+            fontsize=fontsize - 1,
+            frameon=False,
+            bbox_to_anchor=(0.45, bottom - 0.005),
+            handlelength=1.2,
+            handleheight=1.0,
+            columnspacing=1.0,
+        )
+
+    if title is not None:
+        fig.suptitle(
+            title, fontsize=fontsize + 3, fontweight="bold", y=0.99,
         )
     fig.subplots_adjust(
         left=0.08, right=0.95, top=0.94, bottom=bottom,
@@ -700,6 +1243,7 @@ def main():
     col_display = {}
     annotation_types = {}
     annotation_colors = {}
+    track_options = {}
     data_row_cmaps = {}
 
     for col in columns:
@@ -726,35 +1270,66 @@ def main():
                 )
                 annotation_types[col] = vt
 
+                # --- Track tile / text options ---
+                _use_tile = st.checkbox(
+                    "Use single tile colour", key=f"ut_{col}",
+                )
+                _tile_col = None
+                if _use_tile:
+                    _tile_col = st.color_picker(
+                        "Tile colour", "#E0E0E0", key=f"tlc_{col}",
+                    )
+
                 if vt == "Categorical":
-                    pal_name = st.selectbox(
-                        "Palette",
-                        CATEGORICAL_PALETTES,
-                        key=f"cp_{col}",
-                    )
-                    cmap = _get_cmap(pal_name)
-                    unique_vals = sorted(
-                        df[col].dropna().unique(), key=str,
-                    )
-                    defaults = _palette_colors(cmap, len(unique_vals))
-                    if len(unique_vals) > 15:
-                        st.caption(
-                            f"Showing top 15 of {len(unique_vals)} values."
+                    if not _use_tile:
+                        pal_name = st.selectbox(
+                            "Palette",
+                            CATEGORICAL_PALETTES,
+                            key=f"cp_{col}",
                         )
-                    color_map = {}
-                    for i, val in enumerate(unique_vals[:15]):
-                        color_map[val] = st.color_picker(
-                            str(val), defaults[i],
-                            key=f"cc_{col}_{pal_name}_{val}",
+                        cmap = _get_cmap(pal_name)
+                        unique_vals = sorted(
+                            df[col].dropna().unique(), key=str,
                         )
-                    annotation_colors[col] = color_map
+                        defaults = _palette_colors(cmap, len(unique_vals))
+                        if len(unique_vals) > 15:
+                            st.caption(
+                                f"Showing top 15 of {len(unique_vals)} "
+                                f"values."
+                            )
+                        color_map = {}
+                        for i, val in enumerate(unique_vals[:15]):
+                            color_map[val] = st.color_picker(
+                                str(val), defaults[i],
+                                key=f"cc_{col}_{pal_name}_{val}",
+                            )
+                        annotation_colors[col] = color_map
+                    else:
+                        annotation_colors[col] = {}
                 else:
-                    cm = st.selectbox(
-                        "Colormap",
-                        CONTINUOUS_CMAPS,
-                        key=f"cm_{col}",
+                    if not _use_tile:
+                        cm = st.selectbox(
+                            "Colormap",
+                            CONTINUOUS_CMAPS,
+                            key=f"cm_{col}",
+                        )
+                        annotation_colors[col] = cm
+                    else:
+                        annotation_colors[col] = "viridis"
+
+                _show_vals = st.checkbox(
+                    "Show values in tiles", key=f"sv_{col}",
+                )
+                _txt_col = "#000000"
+                if _show_vals:
+                    _txt_col = st.color_picker(
+                        "Text colour", "#000000", key=f"tc_{col}",
                     )
-                    annotation_colors[col] = cm
+                track_options[col] = {
+                    "show_values": _show_vals,
+                    "text_color": _txt_col,
+                    "tile_color": _tile_col,
+                }
 
             # --- Data Row options ---
             elif role == "Data Row":
@@ -775,31 +1350,54 @@ def main():
     if len(sample_cols) != 1:
         st.sidebar.error("Assign exactly one column as **Sample ID**.")
         st.stop()
-    if len(gene_cols) != 1:
-        st.sidebar.error("Assign exactly one column as **Gene / Feature**.")
+    if len(gene_cols) > 1:
+        st.sidebar.error("At most one column can be **Gene / Feature**.")
         st.stop()
     if len(mut_cols) > 1:
         st.sidebar.error("At most one column can be **Mutation Type**.")
         st.stop()
 
     sample_col = sample_cols[0]
-    gene_col = gene_cols[0]
+    gene_col = gene_cols[0] if gene_cols else None
     mut_col = mut_cols[0] if mut_cols else None
+
+    if mut_col and not gene_col:
+        st.sidebar.error("**Mutation Type** requires a **Gene / Feature** column.")
+        st.stop()
 
     # ── 3. Plot settings (sidebar) ─────────────────────────────
     st.sidebar.header("2 \u2014 Plot Settings")
 
-    exclude = {sample_col, gene_col}
+    exclude = {sample_col}
+    if gene_col:
+        exclude.add(gene_col)
     if mut_col:
         exclude.add(mut_col)
-    groupable = ["(None)"] + [c for c in columns if c not in exclude]
-    group_col = st.sidebar.selectbox("Group samples by", groupable)
-    if group_col == "(None)":
-        group_col = None
+    groupable = [c for c in columns if c not in exclude]
 
-    n_top_genes = st.sidebar.slider("Top N genes", 5, 50, 20)
-    show_tmb = st.sidebar.checkbox("Show Mutation Burden bar", True)
-    show_gene_freq = st.sidebar.checkbox("Show Gene Frequency bar", True)
+    n_group_levels = st.sidebar.number_input(
+        "Grouping levels", min_value=0, max_value=4, value=0,
+        key="onco_n_grp",
+    )
+    group_cols = []
+    _used_grp = set()
+    for _lvl in range(n_group_levels):
+        _avail = ["(None)"] + [c for c in groupable if c not in _used_grp]
+        _chosen = st.sidebar.selectbox(
+            f"Group level {_lvl + 1}", _avail, key=f"onco_grp_{_lvl}",
+        )
+        if _chosen != "(None)":
+            group_cols.append(_chosen)
+            _used_grp.add(_chosen)
+
+    if gene_col is not None:
+        n_top_genes = st.sidebar.slider("Top N genes", 5, 50, 20)
+        show_tmb = st.sidebar.checkbox("Show Mutation Burden bar", True)
+        show_gene_freq = st.sidebar.checkbox("Show Gene Frequency bar", True)
+    else:
+        n_top_genes = 0
+        show_tmb = False
+        show_gene_freq = False
     show_sample_labels = st.sidebar.checkbox("Show sample labels", False)
     annot_pos = st.sidebar.radio(
         "Annotation position", ["Bottom", "Top"], key="onco_annot_pos",
@@ -812,65 +1410,63 @@ def main():
     fontsize = st.sidebar.slider("Font size", 5, 14, 8)
 
     # ── 4. Mutation / gene colours (sidebar) ───────────────────
-    if mut_col is None:
-        st.sidebar.header("3 \u2014 Gene / Alteration Colours")
-        gene_freq = df[gene_col].value_counts()
-        data_mut_types = gene_freq.index.tolist()
-    else:
-        st.sidebar.header("3 \u2014 Mutation Type Colours")
-        data_mut_types = list(df[mut_col].dropna().unique())
-        has_multi = (
-            df.groupby([gene_col, sample_col])[mut_col].nunique().max() > 1
-        )
-        if has_multi and "Multi_Hit" not in data_mut_types:
-            data_mut_types.append("Multi_Hit")
-        data_mut_types = sorted(set(data_mut_types), key=str)
-
     mutation_colors = {}
-    n_show = min(20, len(data_mut_types))
-    expander_label = (
-        f"Edit colours ({n_show} of {len(data_mut_types)})"
-        if len(data_mut_types) > n_show
-        else "Edit colours"
-    )
-    with st.sidebar.expander(expander_label, expanded=False):
-        # Palette selector
-        mc_pal_name = st.selectbox(
-            "Palette",
-            CATEGORICAL_PALETTES,
-            key="mc_palette",
-        )
-        mc_cmap = _get_cmap(mc_pal_name)
-        mc_pal_defaults = _palette_colors(mc_cmap, max(len(data_mut_types), 1))
-
-        # Single-colour toggle
-        use_single = st.checkbox("Use single colour", key="mc_single_color")
-
-        if use_single:
-            single_color = st.color_picker(
-                "Colour for all types",
-                mc_pal_defaults[0],
-                key=f"mc_{mc_pal_name}_single",
-            )
-            for mt in data_mut_types:
-                mutation_colors[mt] = single_color
+    if gene_col is not None:
+        if mut_col is None:
+            st.sidebar.header("3 \u2014 Gene / Alteration Colours")
+            gene_freq = df[gene_col].value_counts()
+            data_mut_types = gene_freq.index.tolist()
         else:
-            for idx, mt in enumerate(data_mut_types[:n_show]):
-                default = DEFAULT_MUT_COLORS.get(
-                    mt, mc_pal_defaults[idx % len(mc_pal_defaults)],
-                )
-                mutation_colors[mt] = st.color_picker(
-                    mt, default, key=f"mc_{mc_pal_name}_{mt}",
-                )
-    # Assign remaining types not shown in the expander
-    for idx, mt in enumerate(data_mut_types):
-        if mt not in mutation_colors:
+            st.sidebar.header("3 \u2014 Mutation Type Colours")
+            data_mut_types = list(df[mut_col].dropna().unique())
+            has_multi = (
+                df.groupby([gene_col, sample_col])[mut_col].nunique().max() > 1
+            )
+            if has_multi and "Multi_Hit" not in data_mut_types:
+                data_mut_types.append("Multi_Hit")
+            data_mut_types = sorted(set(data_mut_types), key=str)
+
+        n_show = min(20, len(data_mut_types))
+        expander_label = (
+            f"Edit colours ({n_show} of {len(data_mut_types)})"
+            if len(data_mut_types) > n_show
+            else "Edit colours"
+        )
+        with st.sidebar.expander(expander_label, expanded=False):
+            mc_pal_name = st.selectbox(
+                "Palette",
+                CATEGORICAL_PALETTES,
+                key="mc_palette",
+            )
+            mc_cmap = _get_cmap(mc_pal_name)
+            mc_pal_defaults = _palette_colors(mc_cmap, max(len(data_mut_types), 1))
+
+            use_single = st.checkbox("Use single colour", key="mc_single_color")
+
             if use_single:
-                mutation_colors[mt] = single_color
-            else:
-                mutation_colors[mt] = DEFAULT_MUT_COLORS.get(
-                    mt, mc_pal_defaults[idx % len(mc_pal_defaults)],
+                single_color = st.color_picker(
+                    "Colour for all types",
+                    mc_pal_defaults[0],
+                    key=f"mc_{mc_pal_name}_single",
                 )
+                for mt in data_mut_types:
+                    mutation_colors[mt] = single_color
+            else:
+                for idx, mt in enumerate(data_mut_types[:n_show]):
+                    default = DEFAULT_MUT_COLORS.get(
+                        mt, mc_pal_defaults[idx % len(mc_pal_defaults)],
+                    )
+                    mutation_colors[mt] = st.color_picker(
+                        mt, default, key=f"mc_{mc_pal_name}_{mt}",
+                    )
+        for idx, mt in enumerate(data_mut_types):
+            if mt not in mutation_colors:
+                if use_single:
+                    mutation_colors[mt] = single_color
+                else:
+                    mutation_colors[mt] = DEFAULT_MUT_COLORS.get(
+                        mt, mc_pal_defaults[idx % len(mc_pal_defaults)],
+                    )
 
     # ── 5. Generate oncoplot ───────────────────────────────────
     st.divider()
@@ -879,36 +1475,51 @@ def main():
     )
 
     if generate:
-        key_cols = [sample_col, gene_col] + ([mut_col] if mut_col else [])
-        clean = df.dropna(subset=key_cols)
-        if clean.empty:
-            st.error("No valid rows after dropping NaNs in key columns.")
-            st.stop()
+        if gene_col is not None:
+            # ── Standard mode: build mutation matrix ────────────
+            key_cols = [sample_col, gene_col] + ([mut_col] if mut_col else [])
+            clean = df.dropna(subset=key_cols)
+            if clean.empty:
+                st.error("No valid rows after dropping NaNs in key columns.")
+                st.stop()
 
-        n_dropped = len(df) - len(clean)
-        if n_dropped:
-            st.warning(
-                f"Dropped {n_dropped:,} rows with missing values in key columns."
-            )
+            n_dropped = len(df) - len(clean)
+            if n_dropped:
+                st.warning(
+                    f"Dropped {n_dropped:,} rows with missing values in "
+                    "key columns."
+                )
 
-        with st.spinner("Building mutation matrix \u2026"):
-            matrix = build_mutation_matrix(clean, sample_col, gene_col, mut_col)
-            matrix = matrix.iloc[:n_top_genes]
+            with st.spinner("Building mutation matrix \u2026"):
+                matrix = build_mutation_matrix(
+                    clean, sample_col, gene_col, mut_col,
+                )
+                matrix = matrix.iloc[:n_top_genes]
 
-        # Sample-level data (one row per sample)
-        sample_data = clean.drop_duplicates(
-            subset=[sample_col],
-        ).set_index(sample_col)
+            sample_data = clean.drop_duplicates(
+                subset=[sample_col],
+            ).set_index(sample_col)
+        else:
+            # ── Annotation-only mode ────────────────────────────
+            matrix = None
+            sample_data = df.drop_duplicates(
+                subset=[sample_col],
+            ).set_index(sample_col)
 
         # Group-by
-        group_series = None
-        if group_col and group_col in sample_data.columns:
-            group_series = sample_data[group_col]
+        group_series_list = []
+        for _gc in group_cols:
+            if _gc in sample_data.columns:
+                group_series_list.append(sample_data[_gc])
 
         sorted_samples, group_boundaries = sort_samples(
-            matrix, group_series,
+            matrix, group_series_list if group_series_list else None,
         )
-        matrix = matrix.reindex(columns=sorted_samples)
+        # Fallback: annotation-only with no groups → use all samples
+        if not sorted_samples and matrix is None:
+            sorted_samples = sample_data.index.tolist()
+        if matrix is not None:
+            matrix = matrix.reindex(columns=sorted_samples)
 
         # Clinical / annotation data
         clinical_df = sample_data[annot_cols] if annot_cols else None
@@ -921,26 +1532,52 @@ def main():
                     sample_data[drc], errors="coerce",
                 )
 
-        with st.spinner("Rendering oncoplot \u2026"):
-            fig = draw_oncoplot(
-                matrix=matrix,
-                mutation_colors=mutation_colors,
-                clinical_data=clinical_df,
-                clinical_cols=annot_cols,
-                clinical_types=annotation_types,
-                clinical_colors=annotation_colors,
-                data_rows=dr_dict,
-                data_row_cmaps=data_row_cmaps,
-                display_names=col_display,
-                group_boundaries=group_boundaries,
-                show_tmb=show_tmb,
-                show_gene_freq=show_gene_freq,
-                show_sample_labels=show_sample_labels,
-                annotations_position=annot_pos.lower(),
-                title=plot_title,
-                fig_width=fig_width,
-                fontsize=fontsize,
-            )
+        if matrix is not None:
+            with st.spinner("Rendering oncoplot \u2026"):
+                fig = draw_oncoplot(
+                    matrix=matrix,
+                    mutation_colors=mutation_colors,
+                    clinical_data=clinical_df,
+                    clinical_cols=annot_cols,
+                    clinical_types=annotation_types,
+                    clinical_colors=annotation_colors,
+                    track_options=track_options,
+                    data_rows=dr_dict,
+                    data_row_cmaps=data_row_cmaps,
+                    display_names=col_display,
+                    group_boundaries=group_boundaries,
+                    show_tmb=show_tmb,
+                    show_gene_freq=show_gene_freq,
+                    show_sample_labels=show_sample_labels,
+                    annotations_position=annot_pos.lower(),
+                    title=plot_title,
+                    fig_width=fig_width,
+                    fontsize=fontsize,
+                )
+        else:
+            if not annot_cols and not drow_cols:
+                st.error(
+                    "Assign at least one **Annotation Track** or "
+                    "**Data Row** in annotation-only mode."
+                )
+                st.stop()
+            with st.spinner("Rendering annotation plot \u2026"):
+                fig = draw_annotation_plot(
+                    samples=sorted_samples,
+                    clinical_data=clinical_df,
+                    clinical_cols=annot_cols,
+                    clinical_types=annotation_types,
+                    clinical_colors=annotation_colors,
+                    track_options=track_options,
+                    data_rows=dr_dict,
+                    data_row_cmaps=data_row_cmaps,
+                    display_names=col_display,
+                    group_boundaries=group_boundaries,
+                    show_sample_labels=show_sample_labels,
+                    title=plot_title,
+                    fig_width=fig_width,
+                    fontsize=fontsize,
+                )
 
         # Cache renderings
         buf_png = BytesIO()
@@ -951,9 +1588,12 @@ def main():
         fig.savefig(buf_pdf, format="pdf", bbox_inches="tight")
         st.session_state["onco_pdf"] = buf_pdf.getvalue()
 
-        csv_buf = BytesIO()
-        matrix.to_csv(csv_buf)
-        st.session_state["matrix_csv"] = csv_buf.getvalue()
+        if matrix is not None:
+            csv_buf = BytesIO()
+            matrix.to_csv(csv_buf)
+            st.session_state["matrix_csv"] = csv_buf.getvalue()
+        else:
+            st.session_state.pop("matrix_csv", None)
 
         plt.close(fig)
 
@@ -961,28 +1601,30 @@ def main():
     if "onco_png" in st.session_state:
         st.image(st.session_state["onco_png"], use_container_width=True)
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
+        _has_csv = "matrix_csv" in st.session_state
+        cols = st.columns(3 if _has_csv else 2)
+        with cols[0]:
             st.download_button(
                 "Download PNG (300 dpi)",
                 data=st.session_state["onco_png"],
                 file_name="oncoplot.png",
                 mime="image/png",
             )
-        with c2:
+        with cols[1]:
             st.download_button(
                 "Download PDF",
                 data=st.session_state["onco_pdf"],
                 file_name="oncoplot.pdf",
                 mime="application/pdf",
             )
-        with c3:
-            st.download_button(
-                "Download Mutation Matrix (CSV)",
-                data=st.session_state["matrix_csv"],
-                file_name="mutation_matrix.csv",
-                mime="text/csv",
-            )
+        if _has_csv:
+            with cols[2]:
+                st.download_button(
+                    "Download Mutation Matrix (CSV)",
+                    data=st.session_state["matrix_csv"],
+                    file_name="mutation_matrix.csv",
+                    mime="text/csv",
+                )
 
 
 if __name__ == "__main__":
