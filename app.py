@@ -15,7 +15,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
-from matplotlib.colors import ListedColormap, BoundaryNorm, to_hex
+from matplotlib.colors import ListedColormap, BoundaryNorm, Normalize, to_hex
+from matplotlib.cm import ScalarMappable
 from collections import OrderedDict
 from io import BytesIO
 
@@ -217,6 +218,7 @@ def draw_oncoplot(
     show_gene_freq=True,
     show_sample_labels=False,
     annotations_position="bottom",
+    title=None,
     fig_width=14,
     fontsize=8,
 ):
@@ -370,22 +372,16 @@ def draw_oncoplot(
     # ── 2. Central matrix ──────────────────────────────────────
     ax_mat = fig.add_subplot(gs[mat_row, 0])
     all_axes.append(ax_mat)
+    ax_mat.set_facecolor(BG_COLOR)
     if all_mut_types:
-        ax_mat.imshow(
-            num_mat,
-            cmap=cmap_mat,
-            norm=norm_mat,
-            aspect="auto",
-            interpolation="none",
-            origin="upper",
+        _x_edges = np.arange(n_samples + 1) - 0.5
+        _y_edges = np.arange(n_genes + 1) - 0.5
+        _masked = np.ma.array(num_mat, mask=np.isnan(num_mat))
+        ax_mat.pcolormesh(
+            _x_edges, _y_edges, _masked,
+            cmap=cmap_mat, norm=norm_mat,
+            edgecolors="white", linewidth=0.5,
         )
-    else:
-        ax_mat.set_facecolor(BG_COLOR)
-
-    for i in range(n_genes + 1):
-        ax_mat.axhline(i - 0.5, color="white", linewidth=0.6)
-    for j in range(n_samples + 1):
-        ax_mat.axvline(j - 0.5, color="white", linewidth=0.3)
 
     ax_mat.set_yticks(range(n_genes))
     ax_mat.set_yticklabels(genes, fontsize=fontsize, fontstyle="italic")
@@ -470,12 +466,14 @@ def draw_oncoplot(
             cm_name = data_row_cmaps.get(dr_col, "viridis")
             dr_cmap = _get_cmap(cm_name).copy()
             dr_cmap.set_bad(color="#F0F0F0")
-            im_dr = ax_dr.imshow(
-                vals.reshape(1, -1),
-                cmap=dr_cmap,
-                aspect="auto",
-                interpolation="none",
+            _dr_masked = np.ma.array(vals, mask=np.isnan(vals)).reshape(1, -1)
+            _dr_x = np.arange(n_samples + 1) - 0.5
+            _dr_y = np.array([-0.5, 0.5])
+            ax_dr.pcolormesh(
+                _dr_x, _dr_y, _dr_masked,
+                cmap=dr_cmap, edgecolors="white", linewidth=0.3,
             )
+            ax_dr.set_ylim(-0.5, 0.5)
             label = display_names.get(dr_col, dr_col)
             _style_track(ax_dr, label, n_samples, fontsize)
             all_axes.append(ax_dr)
@@ -484,7 +482,11 @@ def draw_oncoplot(
             ax_cb.set_axis_off()
             valid = vals[~np.isnan(vals)]
             if len(valid) > 0:
-                cb = fig.colorbar(im_dr, ax=ax_cb, fraction=0.9, aspect=8,
+                _dr_sm = ScalarMappable(
+                    cmap=dr_cmap,
+                    norm=Normalize(vmin=np.nanmin(vals), vmax=np.nanmax(vals)),
+                )
+                cb = fig.colorbar(_dr_sm, ax=ax_cb, fraction=0.9, aspect=8,
                                   pad=0.05, location="left")
                 cb.ax.tick_params(labelsize=fontsize - 1)
 
@@ -518,13 +520,15 @@ def draw_oncoplot(
                 tcmap.set_bad(color="#F0F0F0")
                 tb = np.arange(-0.5, len(unique_vals) + 0.5, 1)
                 tnorm = BoundaryNorm(tb, len(unique_vals))
-                ax_trk.imshow(
-                    numeric_row,
-                    cmap=tcmap,
-                    norm=tnorm,
-                    aspect="auto",
-                    interpolation="none",
+                _tc_masked = np.ma.array(numeric_row, mask=np.isnan(numeric_row))
+                _tc_x = np.arange(n_samples + 1) - 0.5
+                _tc_y = np.array([-0.5, 0.5])
+                ax_trk.pcolormesh(
+                    _tc_x, _tc_y, _tc_masked,
+                    cmap=tcmap, norm=tnorm,
+                    edgecolors="white", linewidth=0.3,
                 )
+                ax_trk.set_ylim(-0.5, 0.5)
             else:
                 num_vals = (
                     pd.to_numeric(values, errors="coerce")
@@ -533,12 +537,14 @@ def draw_oncoplot(
                 cm_name = clinical_colors.get(col, "viridis")
                 trk_cmap = _get_cmap(cm_name).copy()
                 trk_cmap.set_bad(color="#F0F0F0")
-                im_trk = ax_trk.imshow(
-                    num_vals.reshape(1, -1),
-                    cmap=trk_cmap,
-                    aspect="auto",
-                    interpolation="none",
+                _ct_masked = np.ma.array(num_vals, mask=np.isnan(num_vals)).reshape(1, -1)
+                _ct_x = np.arange(n_samples + 1) - 0.5
+                _ct_y = np.array([-0.5, 0.5])
+                ax_trk.pcolormesh(
+                    _ct_x, _ct_y, _ct_masked,
+                    cmap=trk_cmap, edgecolors="white", linewidth=0.3,
                 )
+                ax_trk.set_ylim(-0.5, 0.5)
 
             label = display_names.get(col, col)
             _style_track(ax_trk, label, n_samples, fontsize)
@@ -549,7 +555,11 @@ def draw_oncoplot(
                 ax_cb.set_axis_off()
                 valid = num_vals[~np.isnan(num_vals)]
                 if len(valid) > 0:
-                    cb = fig.colorbar(im_trk, ax=ax_cb, fraction=0.9,
+                    _ct_sm = ScalarMappable(
+                        cmap=trk_cmap,
+                        norm=Normalize(vmin=np.nanmin(num_vals), vmax=np.nanmax(num_vals)),
+                    )
+                    cb = fig.colorbar(_ct_sm, ax=ax_cb, fraction=0.9,
                                       aspect=8, pad=0.05, location="left")
                     cb.ax.tick_params(labelsize=fontsize - 1)
             else:
@@ -625,18 +635,19 @@ def draw_oncoplot(
             ncol=n_legend_cols,
             fontsize=fontsize - 1,
             frameon=False,
-            bbox_to_anchor=(0.45, bottom - 0.005),
+            bbox_to_anchor=(0.45, bottom - 0.005 - _bottom_lbl),
             handlelength=1.2,
             handleheight=1.0,
             columnspacing=1.0,
         )
 
-    fig.suptitle(
-        f"Oncoplot  \u2014  {n_samples} samples, {n_genes} genes",
-        fontsize=fontsize + 3,
-        fontweight="bold",
-        y=0.99,
-    )
+    if title is not None:
+        fig.suptitle(
+            title,
+            fontsize=fontsize + 3,
+            fontweight="bold",
+            y=0.99,
+        )
     fig.subplots_adjust(
         left=0.08, right=0.95, top=0.94, bottom=bottom,
     )
@@ -793,6 +804,10 @@ def main():
     annot_pos = st.sidebar.radio(
         "Annotation position", ["Bottom", "Top"], key="onco_annot_pos",
     )
+    show_title = st.sidebar.checkbox("Show title", True)
+    plot_title = st.sidebar.text_input(
+        "Title", "Oncoplot", key="onco_title",
+    ) if show_title else None
     fig_width = st.sidebar.slider("Figure width (in)", 8, 30, 14)
     fontsize = st.sidebar.slider("Font size", 5, 14, 8)
 
@@ -922,6 +937,7 @@ def main():
                 show_gene_freq=show_gene_freq,
                 show_sample_labels=show_sample_labels,
                 annotations_position=annot_pos.lower(),
+                title=plot_title,
                 fig_width=fig_width,
                 fontsize=fontsize,
             )
