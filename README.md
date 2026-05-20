@@ -5,18 +5,23 @@ A Streamlit web application for creating publication-quality co-mutation (oncopl
 ## Features
 
 - **Interactive column mapping** — auto-detects Sample ID, Gene, and Mutation Type columns; manually assign Annotation Tracks and Data Rows
+- **Annotation-only mode** — leave Gene / Feature unassigned to render just annotation tracks and data rows without a mutation matrix
 - **Mutation matrix** — waterfall-sorted heatmap with per-gene or per-mutation-type colouring
 - **TMB bar** — stacked Tumour Mutation Burden bar chart above the matrix
 - **Gene frequency bar** — horizontal bar coloured by dominant mutation type per gene
 - **Annotation tracks** — categorical (colour-mapped) or continuous (heatmap + colour bar) clinical tracks, positionable above or below the matrix
 - **Data rows** — continuous numeric heatmaps with configurable colormaps
-- **Sample grouping** — group and sort samples by any column, with visual separators and labels
+- **Multi-level sample grouping** — up to 4 hierarchical grouping levels with visual separators and stacked labels; consistent inner-group ordering across parent groups
+- **Annotation track ordering** — reorder tracks via display-order controls
 - **Colour customisation**
   - Palette selector (tab10, Set1, Set2, etc.) for gene/mutation colours
-  - Per-value colour pickers for fine-tuning
-  - "Use single colour" mode for presence/absence plots
-  - Per-track palette and colour picker controls for annotation tracks
+  - Visual numbered colour swatches with horizontal radio selectors per category value
+  - Custom colour picker fallback per value
+  - "Use single tile colour" mode per track (hides palette and legend entries)
+  - Evenly-spaced default colour spread across the palette for better variety with few categories
+- **Tile values** — optionally display values as text inside annotation tiles with configurable text colour
 - **Sample labels** — toggleable, automatically placed on the opposite side from annotations to avoid overlap
+- **Title** — configurable plot title
 - **Export** — download as PNG (300 dpi), PDF, or mutation matrix CSV
 
 ## Requirements
@@ -60,10 +65,18 @@ A sample dataset (`sample_mutations.xlsx`) is included in the repository.
 
 ```
 oncoplot/
-  app.py                 # Main Streamlit application
-  requirements.txt       # Python dependencies
-  sample_mutations.xlsx  # Example dataset
+  app.py                           # Streamlit entry point (UI only)
+  requirements.txt                 # Python dependencies
+  sample_mutations.xlsx            # Example dataset
   README.md
+  oncoplot_core/                   # Plotting and data logic
+    __init__.py                    # Re-exports public API
+    constants.py                   # Colour palettes, role lists, defaults
+    helpers.py                     # _get_cmap, _palette_colors, _auto_assign_roles
+    data.py                        # build_mutation_matrix, sort_samples
+    render_shared.py               # Shared rendering helpers (tracks, legends, separators)
+    render_oncoplot.py             # draw_oncoplot (matrix + TMB + gene freq + tracks)
+    render_annotation.py           # draw_annotation_plot (annotation-only mode)
 ```
 
 ## License
