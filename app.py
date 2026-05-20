@@ -1221,8 +1221,8 @@ def main():
         st.session_state["uploaded_name"] = uploaded.name
         for k in list(st.session_state.keys()):
             if k.startswith((
-                "role_", "disp_", "vt_", "cp_", "cc_",
-                "cm_", "dr_cm_", "mc_", "onco_", "matrix_",
+                "role_", "disp_", "vt_", "cp_", "cc_", "ci_",
+                "cm_", "dr_cm_", "mc_", "onco_", "matrix_", "ao_",
             )):
                 del st.session_state[k]
 
@@ -1243,8 +1243,10 @@ def main():
     col_display = {}
     annotation_types = {}
     annotation_colors = {}
+    annotation_order = {}
     track_options = {}
     data_row_cmaps = {}
+    _annot_count = 0
 
     for col in columns:
         g = guessed.get(col, "Skip")
@@ -1263,12 +1265,19 @@ def main():
 
             # --- Annotation Track options ---
             if role == "Annotation Track":
+                _annot_count += 1
                 vt = st.radio(
                     "Type",
                     ["Categorical", "Continuous"],
                     key=f"vt_{col}",
                 )
                 annotation_types[col] = vt
+
+                _ao = st.number_input(
+                    "Display order", min_value=1,
+                    value=_annot_count, key=f"ao_{col}",
+                )
+                annotation_order[col] = _ao
 
                 # --- Track tile / text options ---
                 _use_tile = st.checkbox(
@@ -1288,21 +1297,73 @@ def main():
                             key=f"cp_{col}",
                         )
                         cmap = _get_cmap(pal_name)
+                        n_pal = (
+                            len(cmap.colors)
+                            if hasattr(cmap, "colors")
+                            else 10
+                        )
+                        all_pal = _palette_colors(cmap, n_pal)
+
+                        # Palette colour swatches (numbered)
+                        _pcols = st.columns(n_pal)
+                        for _pi, _pc in enumerate(all_pal):
+                            _pcols[_pi].markdown(
+                                f'<div style="background:{_pc};'
+                                f"height:22px;border-radius:3px;"
+                                f"text-align:center;color:#fff;"
+                                f"font-size:11px;line-height:22px;"
+                                f"font-weight:600;"
+                                f'text-shadow:0 0 2px rgba(0,0,0,.6)">'
+                                f"{_pi + 1}</div>",
+                                unsafe_allow_html=True,
+                            )
+
                         unique_vals = sorted(
                             df[col].dropna().unique(), key=str,
                         )
-                        defaults = _palette_colors(cmap, len(unique_vals))
+                        _spread = np.linspace(
+                            0, n_pal - 1, len(unique_vals),
+                            dtype=int,
+                        ).tolist()
                         if len(unique_vals) > 15:
                             st.caption(
-                                f"Showing top 15 of {len(unique_vals)} "
-                                f"values."
+                                f"Showing top 15 of "
+                                f"{len(unique_vals)} values."
                             )
                         color_map = {}
+                        _radio_labels = (
+                            [str(j + 1) for j in range(n_pal)]
+                            + ["\u270e"]
+                        )
                         for i, val in enumerate(unique_vals[:15]):
-                            color_map[val] = st.color_picker(
-                                str(val), defaults[i],
-                                key=f"cc_{col}_{pal_name}_{val}",
+                            _def = (
+                                _spread[i]
+                                if i < len(_spread)
+                                else 0
                             )
+                            _pick = st.radio(
+                                str(val),
+                                _radio_labels,
+                                index=_def,
+                                horizontal=True,
+                                key=f"ci_{col}_{pal_name}_{val}",
+                            )
+                            if _pick == "\u270e":
+                                color_map[val] = st.color_picker(
+                                    f"Custom for {val}",
+                                    all_pal[_def],
+                                    key=f"cc_{col}_{pal_name}_{val}",
+                                )
+                            else:
+                                _idx = int(_pick) - 1
+                                color_map[val] = all_pal[_idx]
+                                st.markdown(
+                                    f'<div style="background:'
+                                    f"{all_pal[_idx]};"
+                                    f"height:6px;border-radius:3px;"
+                                    f'margin-top:-8px;"></div>',
+                                    unsafe_allow_html=True,
+                                )
                         annotation_colors[col] = color_map
                     else:
                         annotation_colors[col] = {}
@@ -1344,7 +1405,10 @@ def main():
     sample_cols = [c for c, r in col_roles.items() if r == "Sample ID"]
     gene_cols = [c for c, r in col_roles.items() if r == "Gene / Feature"]
     mut_cols = [c for c, r in col_roles.items() if r == "Mutation Type"]
-    annot_cols = [c for c, r in col_roles.items() if r == "Annotation Track"]
+    annot_cols = sorted(
+        [c for c, r in col_roles.items() if r == "Annotation Track"],
+        key=lambda c: annotation_order.get(c, 0),
+    )
     drow_cols = [c for c, r in col_roles.items() if r == "Data Row"]
 
     if len(sample_cols) != 1:
