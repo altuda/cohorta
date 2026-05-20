@@ -78,10 +78,8 @@ def main():
     col_display = {}
     annotation_types = {}
     annotation_colors = {}
-    annotation_order = {}
     track_options = {}
     data_row_cmaps = {}
-    _annot_count = 0
 
     for col in columns:
         g = guessed.get(col, "Skip")
@@ -100,19 +98,12 @@ def main():
 
             # --- Annotation Track options ---
             if role == "Annotation Track":
-                _annot_count += 1
                 vt = st.radio(
                     "Type",
                     ["Categorical", "Continuous"],
                     key=f"vt_{col}",
                 )
                 annotation_types[col] = vt
-
-                _ao = st.number_input(
-                    "Display order", min_value=1,
-                    value=_annot_count, key=f"ao_{col}",
-                )
-                annotation_order[col] = _ao
 
                 # --- Track tile / text options ---
                 _use_tile = st.checkbox(
@@ -236,14 +227,29 @@ def main():
                 )
                 data_row_cmaps[col] = cm
 
+    # ── Annotation track ordering (consolidated) ────────────────
+    _all_annot = [c for c, r in col_roles.items() if r == "Annotation Track"]
+    if len(_all_annot) > 1:
+        with st.sidebar.expander("Track order", expanded=True):
+            _remaining = list(_all_annot)
+            _ordered = []
+            for _pos in range(len(_all_annot)):
+                _label = col_display.get(_remaining[0], _remaining[0]) if _remaining else ""
+                _pick = st.selectbox(
+                    f"Position {_pos + 1}",
+                    _remaining,
+                    format_func=lambda c: col_display.get(c, c),
+                    key=f"ao_pos_{_pos}",
+                )
+                _ordered.append(_pick)
+                _remaining = [c for c in _remaining if c not in _ordered]
+            _all_annot = _ordered
+
     # ── Derive logical columns ─────────────────────────────────
     sample_cols = [c for c, r in col_roles.items() if r == "Sample ID"]
     gene_cols = [c for c, r in col_roles.items() if r == "Gene / Feature"]
     mut_cols = [c for c, r in col_roles.items() if r == "Mutation Type"]
-    annot_cols = sorted(
-        [c for c, r in col_roles.items() if r == "Annotation Track"],
-        key=lambda c: annotation_order.get(c, 0),
-    )
+    annot_cols = _all_annot
     drow_cols = [c for c, r in col_roles.items() if r == "Data Row"]
 
     if len(sample_cols) != 1:
