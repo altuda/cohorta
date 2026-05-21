@@ -15,6 +15,7 @@ from .render_shared import (
     render_annotation_tracks,
     render_group_separators,
     build_categorical_legend_handles,
+    measure_label_height_in,
 )
 
 
@@ -82,6 +83,18 @@ def draw_oncoplot(
     else:
         norm_mat = None
 
+    # ── Legend handles (built early so geometry can reserve room) ─
+    legend_handles = [
+        mpatches.Patch(color=mutation_colors.get(mt, "#808080"), label=mt)
+        for mt in all_mut_types
+    ]
+    legend_handles.extend(
+        build_categorical_legend_handles(
+            clinical_cols, clinical_types, clinical_colors,
+            clinical_data, track_options, display_names,
+        )
+    )
+
     # ── Figure geometry ─────────────────────────────────────────
     _n_grp_levels = len(group_boundaries)
     _grp_label_h = _n_grp_levels * fontsize * 2.5 / 72
@@ -95,11 +108,11 @@ def draw_oncoplot(
     _labels_visible = show_sample_labels and n_samples <= 80
     _labels_on_top = _labels_visible and annotations_position == "bottom"
     _labels_on_bottom = _labels_visible and annotations_position == "top"
-    if _labels_visible:
-        _max_lbl = max((len(str(s)) for s in samples), default=0)
-        _label_h = min(2.5, _max_lbl * max(fontsize - 2, 4) * 0.5 / 72)
-    else:
-        _label_h = 0.0
+    # Reserve space sized to the actual rendered sample labels (uncapped),
+    # so long IDs never overlap the matrix/TMB (top) or the legend (bottom).
+    _label_h = (
+        measure_label_height_in(samples, fontsize) if _labels_visible else 0.0
+    )
 
     if annotations_position == "top":
         height_ratios = (
@@ -132,9 +145,29 @@ def draw_oncoplot(
         data_start = 2 + _lbl_off + int(has_gap)
         trk_start = 2 + _lbl_off + int(has_gap) + n_data
 
-    fig_height = sum(height_ratios) + 1.8
-    if _labels_on_bottom:
-        fig_height += _label_h
+    # ── Margin budget (inches) ──────────────────────────────────
+    # Top reserves the title; bottom reserves the legend rows plus, when the
+    # sample labels sit under the plot, their measured height. Computing these
+    # in inches (instead of fixed fractions) keeps the title->plot and
+    # plot->legend gaps constant regardless of figure height or label length.
+    n_legend_cols = min(5, len(legend_handles)) if legend_handles else 1
+    n_legend_rows = (
+        (len(legend_handles) + n_legend_cols - 1) // n_legend_cols
+        if legend_handles
+        else 0
+    )
+    legend_row_h = fontsize * 1.8 / 72
+    legend_h = n_legend_rows * legend_row_h * 1.4
+    legend_pad = 0.14 if legend_handles else 0.0
+
+    title_h = (fontsize + 3) * 2.2 / 72 if title is not None else 0.0
+    top_pad = title_h + 0.12
+
+    _bottom_label_h = _label_h if _labels_on_bottom else 0.0
+    bottom_pad = 0.10 + legend_pad + legend_h + _bottom_label_h
+
+    content_h = sum(height_ratios)
+    fig_height = content_h + top_pad + bottom_pad
     n_gs_rows = len(height_ratios)
     n_gs_cols = 2
     width_ratios = [max(n_samples * 0.25, 6), 3]
@@ -278,35 +311,12 @@ def draw_oncoplot(
             n_levels, fontsize,
         )
 
-    # ── 7. Legend ──────────────────────────────────────────────
-    legend_handles = [
-        mpatches.Patch(color=mutation_colors.get(mt, "#808080"), label=mt)
-        for mt in all_mut_types
-    ]
-    legend_handles.extend(
-        build_categorical_legend_handles(
-            clinical_cols, clinical_types, clinical_colors,
-            clinical_data, track_options, display_names,
-        )
-    )
-
-    n_legend_cols = min(5, len(legend_handles)) if legend_handles else 1
-    n_legend_rows = (
-        (len(legend_handles) + n_legend_cols - 1) // n_legend_cols
-        if legend_handles
-        else 0
-    )
-    row_frac = (fontsize * 1.8) / (fig_height * 72) if fig_height > 0 else 0
-    legend_margin = n_legend_rows * row_frac * 1.4
-    _bottom_lbl = (
-        (_label_h / fig_height)
-        if _labels_on_bottom and fig_height > 0
-        else 0
-    )
-    bottom = min(0.50, max(0.06, 0.02 + legend_margin + _bottom_lbl))
+    # ── 7. Margins, legend & title (inches-based, see budget above) ──
+    _bottom_lbl = _bottom_label_h / fig_height
+    top_margin = 1.0 - top_pad / fig_height
+    bottom = bottom_pad / fig_height
 
     _left, _right = 0.08, 0.95
-    top_margin = 0.94
     fig.subplots_adjust(
         left=_left, right=_right, top=top_margin, bottom=bottom,
     )
@@ -322,7 +332,10 @@ def draw_oncoplot(
             ncol=n_legend_cols,
             fontsize=fontsize - 1,
             frameon=False,
-            bbox_to_anchor=(_plot_center, bottom - 0.005 - _bottom_lbl),
+            bbox_to_anchor=(
+                _plot_center,
+                bottom - _bottom_lbl - 0.4 * legend_pad / fig_height,
+            ),
             handlelength=1.2,
             handleheight=1.0,
             columnspacing=1.0,
@@ -331,6 +344,8 @@ def draw_oncoplot(
     if title is not None:
         fig.suptitle(
             title, fontsize=fontsize + 3, fontweight="bold",
-            x=_plot_center, y=0.99,
+            x=_plot_center,
+            y=top_margin + (0.06 + title_h) / fig_height,
+            va="top",
         )
     return fig

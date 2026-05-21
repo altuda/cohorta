@@ -2,12 +2,40 @@
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.colors import ListedColormap, BoundaryNorm, Normalize
 from matplotlib.cm import ScalarMappable
 
 from .constants import FALLBACK_COLORS
 from .helpers import _get_cmap
+
+
+def measure_label_height_in(samples, fontsize, rotation=90, pad_in=0.08, dpi=100):
+    """Vertical extent (inches) the sample labels need when rotated.
+
+    Rather than estimating from character counts, this renders each label on a
+    throwaway figure and measures its real bounding box, so the reserved space
+    matches the actual text (proportional fonts, wide glyphs, etc.) and there is
+    no arbitrary cap. The result feeds the spacer row / bottom margin that keeps
+    long sample IDs from overlapping the matrix, tracks, or legend.
+    """
+    if not samples:
+        return 0.0
+    label_fs = max(fontsize - 2, 4)
+    fig_tmp = plt.figure(figsize=(1, 1), dpi=dpi)
+    try:
+        renderer = fig_tmp.canvas.get_renderer()
+        max_px = 0.0
+        for s in samples:
+            txt = fig_tmp.text(0, 0, str(s), fontsize=label_fs, rotation=rotation)
+            bb = txt.get_window_extent(renderer)
+            txt.remove()
+            if bb.height > max_px:
+                max_px = bb.height
+    finally:
+        plt.close(fig_tmp)
+    return max_px / dpi + pad_in
 
 
 def style_track(ax, label, n_samples, fontsize):
