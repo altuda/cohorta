@@ -63,27 +63,32 @@ export default function PlotSettingsPanel() {
           <span className="text-slate-700">Sample labels</span>
         </label>
 
-        <label className="block">
-          <span className="text-xs text-slate-500">
-            {hasGene ? "Annotation position" : "Sample labels position"}
-          </span>
-          <div className="flex gap-3 mt-0.5">
-            {["bottom", "top"].map((pos) => (
-              <label key={pos} className="flex items-center gap-1 text-sm">
-                <input
-                  type="radio"
-                  name="annotPos"
-                  value={pos}
-                  checked={s.annotationsPosition === pos}
-                  onChange={() =>
-                    s.setPlotSetting("annotationsPosition", pos)
-                  }
-                />
-                <span className="capitalize text-slate-700">{pos}</span>
-              </label>
-            ))}
-          </div>
-        </label>
+        {/* In oncoplot mode this controls annotation-track placement (always
+            relevant); in annotation-only mode it only positions the sample
+            labels, so hide it unless labels are shown. */}
+        {(hasGene || s.showSampleLabels) && (
+          <label className="block">
+            <span className="text-xs text-slate-500">
+              {hasGene ? "Annotation position" : "Sample labels position"}
+            </span>
+            <div className="flex gap-3 mt-0.5">
+              {["bottom", "top"].map((pos) => (
+                <label key={pos} className="flex items-center gap-1 text-sm">
+                  <input
+                    type="radio"
+                    name="annotPos"
+                    value={pos}
+                    checked={s.annotationsPosition === pos}
+                    onChange={() =>
+                      s.setPlotSetting("annotationsPosition", pos)
+                    }
+                  />
+                  <span className="capitalize text-slate-700">{pos}</span>
+                </label>
+              ))}
+            </div>
+          </label>
+        )}
 
         <label className="block">
           <span className="text-xs text-slate-500">Title</span>

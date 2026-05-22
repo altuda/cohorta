@@ -69,7 +69,6 @@ class RenderRequest(BaseModel):
     annotation_types: dict[str, str] = {}
     annotation_colors: dict[str, Any] = {}
     track_options: dict[str, TrackOptionsPayload] = {}
-    data_row_cmaps: dict[str, str] = {}
     mutation_colors: dict[str, str] = {}
     group_columns: list[str] = []
     # Custom left-to-right order of group blocks, keyed by grouping column name:

@@ -6,7 +6,6 @@ COLUMN_ROLES = [
     "Gene / Feature",
     "Mutation Type",
     "Annotation Track",
-    "Data Row",
 ]
 
 DEFAULT_MUT_COLORS = {

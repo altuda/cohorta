@@ -97,8 +97,11 @@ def draw_oncoplot(
 
     # ── Figure geometry ─────────────────────────────────────────
     _n_grp_levels = len(group_boundaries)
-    _grp_label_h = _n_grp_levels * fontsize * 2.5 / 72
-    tmb_h = (2.0 if show_tmb else 0.001) + _grp_label_h
+    # Group section labels are placed in a header band under the title (in
+    # figure coords, after layout) rather than stacked on the TMB/matrix axis,
+    # so they sit consistently regardless of TMB / annotation / label position.
+    header_band_h = _n_grp_levels * fontsize * 2.6 / 72
+    tmb_h = 2.0 if show_tmb else 0.001
     mat_h = max(n_genes * 0.45, 3.0)
     data_h = 0.6
     trk_h = 0.6
@@ -161,7 +164,7 @@ def draw_oncoplot(
     legend_pad = 0.14 if legend_handles else 0.0
 
     title_h = (fontsize + 3) * 2.2 / 72 if title is not None else 0.0
-    top_pad = title_h + 0.12
+    top_pad = title_h + 0.12 + header_band_h
 
     _bottom_label_h = _label_h if _labels_on_bottom else 0.0
     bottom_pad = 0.10 + legend_pad + legend_h + _bottom_label_h
@@ -300,15 +303,12 @@ def draw_oncoplot(
         all_axes, sharex_ax=ax_mat,
     )
 
-    # ── 6. Group separators & labels ──────────────────────────
+    # ── 6. Group separator lines (labels drawn in header band below) ──
     if group_boundaries:
         n_levels = len(group_boundaries)
-        label_ax = ax_tmb if show_tmb else ax_mat
-        ylim = label_ax.get_ylim()
-        y_top = max(ylim) if show_tmb else min(ylim)
         render_group_separators(
-            group_boundaries, all_axes, label_ax, y_top,
-            n_levels, fontsize,
+            group_boundaries, all_axes, None, 0,
+            n_levels, fontsize, draw_labels=False,
         )
 
     # ── 7. Margins, legend & title (inches-based, see budget above) ──
@@ -341,11 +341,30 @@ def draw_oncoplot(
             columnspacing=1.0,
         )
 
+    # Group section labels: a header band between the title and the content.
+    # x is taken from the matrix axis (after layout) so labels centre over the
+    # right columns; y is stacked by level with the outermost level on top.
+    if group_boundaries and _n_grp_levels:
+        _band_frac = header_band_h / fig_height
+        _inv = fig.transFigure.inverted()
+        for lvl in sorted(group_boundaries):
+            _slot_center = (_n_grp_levels - lvl - 0.5) / _n_grp_levels
+            _y = top_margin + _band_frac * _slot_center
+            for (lbl, start, end) in group_boundaries[lvl]:
+                _cx = (start + end - 1) / 2.0
+                _fx = _inv.transform(ax_mat.transData.transform((_cx, 0)))[0]
+                fig.text(
+                    _fx, _y, lbl,
+                    ha="center", va="center",
+                    fontsize=max(fontsize - min(lvl, 2), 5),
+                    fontweight="bold" if lvl == 0 else "semibold",
+                )
+
     if title is not None:
         fig.suptitle(
             title, fontsize=fontsize + 3, fontweight="bold",
             x=_plot_center,
-            y=top_margin + (0.06 + title_h) / fig_height,
+            y=top_margin + (0.06 + title_h + header_band_h) / fig_height,
             va="top",
         )
     return fig

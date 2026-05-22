@@ -12,8 +12,6 @@ export default function ColumnRoleCard({ col }: Props) {
   const displayName = useSessionStore((s) => s.displayNames[col] ?? col);
   const setRole = useSessionStore((s) => s.setRole);
   const setDisplayName = useSessionStore((s) => s.setDisplayName);
-  const dataRowCmaps = useSessionStore((s) => s.dataRowCmaps[col]);
-  const setDataRowCmap = useSessionStore((s) => s.setDataRowCmap);
 
   const [open, setOpen] = useState(role !== "Skip");
 
@@ -64,24 +62,6 @@ export default function ColumnRoleCard({ col }: Props) {
 
           {role === "Annotation Track" && (
             <AnnotationTrackOptions col={col} />
-          )}
-
-          {role === "Data Row" && (
-            <label className="block">
-              <span className="text-xs text-slate-500">Colormap</span>
-              <select
-                value={dataRowCmaps ?? "viridis"}
-                onChange={(e) => setDataRowCmap(col, e.target.value)}
-                className="mt-0.5 block w-full rounded border border-slate-200 px-2 py-1 text-sm bg-white"
-              >
-                {[
-                  "viridis", "plasma", "inferno", "magma",
-                  "coolwarm", "RdBu", "YlOrRd", "Blues",
-                ].map((cm) => (
-                  <option key={cm}>{cm}</option>
-                ))}
-              </select>
-            </label>
           )}
         </div>
       )}

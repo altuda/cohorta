@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import OrderedDict
 from io import BytesIO
 
 import matplotlib
@@ -52,7 +51,6 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
     annot_cols = req.annotation_order or [
         c for c, r in roles.items() if r == "Annotation Track"
     ]
-    drow_cols = [c for c, r in roles.items() if r == "Data Row"]
 
     if sample_col is None:
         raise ValueError("No Sample ID column assigned.")
@@ -95,12 +93,6 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
     # Clinical / annotation data
     clinical_df = sample_data[annot_cols] if annot_cols else None
 
-    # Data rows
-    dr_dict = OrderedDict()
-    for drc in drow_cols:
-        if drc in sample_data.columns:
-            dr_dict[drc] = pd.to_numeric(sample_data[drc], errors="coerce")
-
     # Track options: convert from Pydantic to plain dict
     track_opts = {
         col: {
@@ -132,8 +124,6 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
             clinical_types=req.annotation_types,
             clinical_colors=req.annotation_colors,
             track_options=track_opts,
-            data_rows=dr_dict,
-            data_row_cmaps=req.data_row_cmaps,
             display_names=req.display_names,
             group_boundaries=group_boundaries,
             show_tmb=req.show_tmb,
@@ -145,9 +135,9 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
             fontsize=req.fontsize,
         )
     else:
-        if not annot_cols and not drow_cols:
+        if not annot_cols:
             raise ValueError(
-                "Assign at least one Annotation Track or Data Row in annotation-only mode."
+                "Assign at least one Annotation Track in annotation-only mode."
             )
         fig = draw_annotation_plot(
             samples=sorted_samples,
@@ -156,8 +146,6 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
             clinical_types=req.annotation_types,
             clinical_colors=req.annotation_colors,
             track_options=track_opts,
-            data_rows=dr_dict,
-            data_row_cmaps=req.data_row_cmaps,
             display_names=req.display_names,
             group_boundaries=group_boundaries,
             show_sample_labels=req.show_sample_labels,

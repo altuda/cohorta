@@ -24,9 +24,6 @@ interface SessionState {
   annotationColors: Record<string, Record<string, string> | string>;
   trackOptions: Record<string, TrackOptionsPayload>;
 
-  // Data rows
-  dataRowCmaps: Record<string, string>;
-
   // Mutation colors
   mutationTypes: string[];
   annotationUniqueValues: Record<string, string[]>;
@@ -63,7 +60,6 @@ interface SessionState {
     color: Record<string, string> | string
   ) => void;
   setTrackOption: (col: string, opts: Partial<TrackOptionsPayload>) => void;
-  setDataRowCmap: (col: string, cmap: string) => void;
   setMutationTypes: (types: string[]) => void;
   setAnnotationUniqueValues: (vals: Record<string, string[]>) => void;
   setMutationColor: (type: string, color: string) => void;
@@ -96,7 +92,6 @@ const initialState = {
   annotationTypes: {},
   annotationColors: {},
   trackOptions: {},
-  dataRowCmaps: {},
   mutationTypes: [],
   annotationUniqueValues: {},
   mutationColors: {},
@@ -134,7 +129,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       annotationTypes: {},
       annotationColors: {},
       trackOptions: {},
-      dataRowCmaps: {},
       mutationTypes: [],
       annotationUniqueValues: {},
       mutationColors: {},
@@ -190,9 +184,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
     }),
 
-  setDataRowCmap: (col, cmap) =>
-    set((s) => ({ dataRowCmaps: { ...s.dataRowCmaps, [col]: cmap } })),
-
   setMutationTypes: (types) => set({ mutationTypes: types }),
 
   setAnnotationUniqueValues: (vals) => set({ annotationUniqueValues: vals }),
@@ -229,7 +220,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       annotation_types: s.annotationTypes,
       annotation_colors: s.annotationColors,
       track_options: s.trackOptions,
-      data_row_cmaps: s.dataRowCmaps,
       mutation_colors: s.mutationColors,
       group_columns: s.groupColumns,
       group_order: s.groupValueOrder,

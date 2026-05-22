@@ -234,8 +234,14 @@ def render_annotation_tracks(
 
 def render_group_separators(
     group_boundaries, all_axes, label_ax, y_top, n_levels, fontsize,
+    draw_labels=True,
 ):
-    """Draw multi-level group separator lines and stacked labels."""
+    """Draw multi-level group separator lines and stacked labels.
+
+    When *draw_labels* is False only the vertical separator lines are drawn;
+    the caller is responsible for placing the group labels (e.g. in a figure
+    header band). *label_ax*/*y_top* are then ignored.
+    """
     if not group_boundaries:
         return
 
@@ -263,7 +269,7 @@ def render_group_separators(
                             zorder=10 + (n_levels - lvl),
                         )
 
-    if label_ax is not None:
+    if draw_labels and label_ax is not None:
         for lvl in sorted(group_boundaries):
             row_off = (n_levels - 1 - lvl)
             y_pts = (row_off + 1) * fontsize * 2.0

@@ -44,7 +44,6 @@ export interface RenderRequest {
   annotation_types: Record<string, string>;
   annotation_colors: Record<string, Record<string, string> | string>;
   track_options: Record<string, TrackOptionsPayload>;
-  data_row_cmaps: Record<string, string>;
   mutation_colors: Record<string, string>;
   group_columns: string[];
   group_order: Record<string, string[]>;
@@ -71,7 +70,6 @@ export const COLUMN_ROLES = [
   "Gene / Feature",
   "Mutation Type",
   "Annotation Track",
-  "Data Row",
 ] as const;
 
 export type ColumnRole = (typeof COLUMN_ROLES)[number];

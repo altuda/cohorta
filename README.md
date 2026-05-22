@@ -4,14 +4,13 @@ A React + FastAPI web application for creating publication-quality co-mutation (
 
 ## Features
 
-- **Interactive column mapping** — auto-detects Sample ID, Gene, and Mutation Type columns; manually assign Annotation Tracks and Data Rows
-- **Annotation-only mode** — leave Gene / Feature unassigned to render just annotation tracks and data rows without a mutation matrix
+- **Interactive column mapping** — auto-detects Sample ID, Gene, and Mutation Type columns; manually assign Annotation Tracks
+- **Annotation-only mode** — leave Gene / Feature unassigned to render just annotation tracks without a mutation matrix
 - **Mutation matrix** — waterfall-sorted heatmap with per-gene or per-mutation-type colouring
 - **TMB bar** — stacked Tumour Mutation Burden bar chart above the matrix
 - **Gene frequency bar** — horizontal bar coloured by dominant mutation type per gene
 - **Annotation tracks** — categorical (colour-mapped) or continuous (heatmap + colour bar) clinical tracks, positionable above or below the matrix
-- **Data rows** — continuous numeric heatmaps with configurable colormaps
-- **Multi-level sample grouping** — up to 4 hierarchical grouping levels with visual separators and stacked labels; consistent inner-group ordering across parent groups
+- **Multi-level sample grouping** — up to 4 hierarchical grouping levels with visual separators and labels; drag to reorder group blocks
 - **Drag-and-drop track ordering** — reorder annotation tracks visually via drag handles
 - **Colour customisation**
   - Palette selector (tab10, Set1, Set2, etc.) for gene/mutation and annotation colours
@@ -55,7 +54,7 @@ Then open `http://localhost:8000`.
 ## Usage
 
 1. **Upload** an `.xlsx` file containing mutation data in long format (one row per sample-gene pair).
-2. **Map columns** in the sidebar — assign roles: Sample ID, Gene / Feature, Mutation Type, Annotation Track, Data Row, or Skip.
+2. **Map columns** in the sidebar — assign roles: Sample ID, Gene / Feature, Mutation Type, Annotation Track, or Skip.
 3. **Configure plot settings** — choose top-N genes, toggle TMB/frequency bars, set annotation/label position (top/bottom), adjust figure width and font size.
 4. **Customise colours** — click colour swatches to pick from the palette, or open the colour picker for full control with hex input.
 5. **Reorder tracks** — drag and drop annotation tracks in the sidebar to change their display order.
@@ -72,7 +71,6 @@ The app expects an Excel file with at least two columns:
 | **Gene / Feature** | Gene name or alteration identifier |
 | **Mutation Type** *(optional)* | e.g. Missense_Mutation, Frame_Shift_Del |
 | **Annotation Track** *(optional)* | Clinical/categorical or continuous sample-level data |
-| **Data Row** *(optional)* | Numeric sample-level data shown as a heatmap row |
 
 A sample dataset (`sample_mutations.xlsx`) is included in the repository.
 
@@ -127,7 +125,6 @@ oncoplot/
           ColumnRolePanel.tsx      # All column role cards
           ColumnRoleCard.tsx       # Single column role config
           AnnotationTrackOptions.tsx  # Categorical/continuous colour config
-          DataRowOptions.tsx       # Colormap selector for data rows
           TrackOrderPanel.tsx      # @dnd-kit drag-and-drop track reorder
         plot/
           PlotSettingsPanel.tsx    # Top-N, TMB, font size, etc.
