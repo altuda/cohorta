@@ -129,9 +129,13 @@ def render_annotation_tracks(
             if _tile_color:
                 tc_list = [_tile_color] * max(len(unique_vals), 1)
             else:
+                # Color-map keys arrive from the frontend as strings (the
+                # unique values are sent JSON-encoded via .astype(str)), so look
+                # up by str(v) — otherwise numeric columns (e.g. Age) never match
+                # and silently fall back to the default palette.
                 tc_list = [
                     col_map.get(
-                        v, FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
+                        str(v), FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
                     )
                     for i, v in enumerate(unique_vals)
                 ]
@@ -296,7 +300,7 @@ def build_categorical_legend_handles(
             vals = sorted(clinical_data[col].dropna().unique(), key=str)
             for i, v in enumerate(vals):
                 c = col_map.get(
-                    v, FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
+                    str(v), FALLBACK_COLORS[i % len(FALLBACK_COLORS)]
                 )
                 handles.append(
                     mpatches.Patch(color=c, label=f"{label_name}: {v}")
