@@ -102,10 +102,14 @@ export default function MutationColorsPanel() {
   const [singleColor, setSingleColor] = useState("#1f77b4");
 
   const n = Math.max(mutationTypes.length, 1);
+  // `paletteColors` (n, spread evenly) drives the auto-assigned defaults, while
+  // the quick-pick swatch row shows the fuller palette so the colours offered
+  // aren't capped to the number of groups.
   const { data: paletteColors } = usePaletteColors(palette, n);
+  const { data: pickerPalette } = usePaletteColors(palette, Math.max(n, 10));
   const dedupedPalColors = useMemo(
-    () => [...new Set(paletteColors?.colors ?? [])],
-    [paletteColors],
+    () => [...new Set(pickerPalette?.colors ?? [])],
+    [pickerPalette],
   );
 
   // Apply single color or palette defaults — single batch update

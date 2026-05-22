@@ -1,5 +1,7 @@
 """Utility helpers for colormaps and auto-detection."""
 
+import colorsys
+
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,14 +19,29 @@ def _get_cmap(name):
 
 
 def _palette_colors(cmap, n):
-    """Extract *n* evenly-spaced colours from a colormap."""
+    """Return *n* distinct colours derived from a colormap.
+
+    For qualitative palettes (ListedColormap, e.g. tab10): when *n* fits within
+    the palette its own colours are spread evenly; when *n* exceeds the palette
+    size the palette colours are kept intact and the overflow is filled with
+    evenly-spaced HSV hues, so every group gets a unique colour instead of the
+    palette cycling and repeating. Continuous colormaps are sampled directly.
+    """
     if hasattr(cmap, "colors"):
         k = len(cmap.colors)
-        if n >= k:
-            return [to_hex(cmap.colors[i % k]) for i in range(n)]
-        # Spread selections evenly across the palette for better variety
-        indices = np.linspace(0, k - 1, n, dtype=int)
-        return [to_hex(cmap.colors[idx]) for idx in indices]
+        if n <= k:
+            # Spread selections evenly across the palette for better variety
+            indices = np.linspace(0, k - 1, n, dtype=int)
+            return [to_hex(cmap.colors[idx]) for idx in indices]
+        # More groups than palette colours: keep the palette, then extend with
+        # evenly-spaced distinct hues for the overflow.
+        base = [to_hex(c) for c in cmap.colors]
+        n_extra = n - k
+        extra = [
+            to_hex(colorsys.hsv_to_rgb((j + 0.5) / n_extra, 0.65, 0.85))
+            for j in range(n_extra)
+        ]
+        return base + extra
     return [to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
 
 
