@@ -75,14 +75,17 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
         matrix = None
         sample_data = df.drop_duplicates(subset=[sample_col]).set_index(sample_col)
 
-    # Group-by
+    # Group-by (with optional custom per-level block order)
     group_series_list = []
+    group_orders = []
     for gc in req.group_columns:
         if gc in sample_data.columns:
             group_series_list.append(sample_data[gc])
+            group_orders.append(req.group_order.get(gc))
 
     sorted_samples, group_boundaries = sort_samples(
         matrix, group_series_list if group_series_list else None,
+        group_orders=group_orders if group_series_list else None,
     )
     if not sorted_samples and matrix is None:
         sorted_samples = sample_data.index.tolist()

@@ -72,6 +72,9 @@ class RenderRequest(BaseModel):
     data_row_cmaps: dict[str, str] = {}
     mutation_colors: dict[str, str] = {}
     group_columns: list[str] = []
+    # Custom left-to-right order of group blocks, keyed by grouping column name:
+    # {column: [value, ...]}. Values not listed fall back to mutation-burden order.
+    group_order: dict[str, list[str]] = {}
     top_n_genes: int = 20
     show_tmb: bool = False
     show_gene_freq: bool = False

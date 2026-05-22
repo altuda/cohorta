@@ -33,7 +33,7 @@ def build_mutation_matrix(df, sample_col, gene_col, mut_col):
     return matrix.loc[freq.index]
 
 
-def sort_samples(matrix, group_series_list=None):
+def sort_samples(matrix, group_series_list=None, group_orders=None):
     """Waterfall-sort samples with optional multi-level hierarchical grouping.
 
     Parameters
@@ -42,6 +42,11 @@ def sort_samples(matrix, group_series_list=None):
         Gene x sample mutation matrix.  ``None`` in annotation-only mode.
     group_series_list : list[Series] or None
         Ordered list of grouping Series (level 0 = outermost).
+    group_orders : list[list[str]] or None
+        Per-level custom block order (aligned to ``group_series_list``); each
+        entry is an explicit ordering of that level's group values, or ``None``
+        to keep the default mutation-burden order.  Values absent from a custom
+        list are appended after the listed ones, in burden order.
 
     Returns
     -------
@@ -130,6 +135,18 @@ def sort_samples(matrix, group_series_list=None):
             def _global_count(g, _s=_gs):
                 return -int((_s == g).sum())
             _uvals.sort(key=_global_count)
+        # Apply a user-defined block order on top of the burden order. The sort
+        # is stable, so any values not named in the custom list keep their
+        # burden ranking and trail the explicitly ordered ones. Group values may
+        # be numeric, so match against the string form the frontend sends.
+        _custom = (
+            group_orders[_lvl]
+            if group_orders and _lvl < len(group_orders)
+            else None
+        )
+        if _custom:
+            _pos = {str(v): i for i, v in enumerate(_custom)}
+            _uvals.sort(key=lambda g, _p=_pos, _n=len(_custom): _p.get(str(g), _n))
         _global_rank[_lvl] = {g: i for i, g in enumerate(_uvals)}
 
     all_boundaries = {}

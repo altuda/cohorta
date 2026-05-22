@@ -45,6 +45,7 @@ export default function AppShell() {
   const dataRowCmaps = useSessionStore((s) => s.dataRowCmaps);
   const mutationColors = useSessionStore((s) => s.mutationColors);
   const groupColumns = useSessionStore((s) => s.groupColumns);
+  const groupValueOrder = useSessionStore((s) => s.groupValueOrder);
   const topNGenes = useSessionStore((s) => s.topNGenes);
   const showTmb = useSessionStore((s) => s.showTmb);
   const showGeneFreq = useSessionStore((s) => s.showGeneFreq);
@@ -57,7 +58,7 @@ export default function AppShell() {
   const configFingerprint = JSON.stringify({
     roles, displayNames, annotationOrder, annotationTypes,
     annotationColors, trackOptions, dataRowCmaps, mutationColors,
-    groupColumns, topNGenes, showTmb, showGeneFreq,
+    groupColumns, groupValueOrder, topNGenes, showTmb, showGeneFreq,
     showSampleLabels, annotationsPosition, title, figWidth, fontsize,
   });
 

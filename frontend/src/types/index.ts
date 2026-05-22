@@ -47,6 +47,7 @@ export interface RenderRequest {
   data_row_cmaps: Record<string, string>;
   mutation_colors: Record<string, string>;
   group_columns: string[];
+  group_order: Record<string, string[]>;
   top_n_genes: number;
   show_tmb: boolean;
   show_gene_freq: boolean;

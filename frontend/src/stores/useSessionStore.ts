@@ -34,6 +34,7 @@ interface SessionState {
 
   // Grouping
   groupColumns: string[];
+  groupValueOrder: Record<string, string[]>;
 
   // Plot settings
   topNGenes: number;
@@ -68,6 +69,7 @@ interface SessionState {
   setMutationColor: (type: string, color: string) => void;
   setMutationColorsBatch: (colors: Record<string, string>) => void;
   setGroupColumns: (cols: string[]) => void;
+  setGroupValueOrder: (col: string, order: string[]) => void;
   setPlotSetting: <K extends keyof SessionState>(
     key: K,
     value: SessionState[K]
@@ -99,6 +101,7 @@ const initialState = {
   annotationUniqueValues: {},
   mutationColors: {},
   groupColumns: [],
+  groupValueOrder: {},
   topNGenes: 20,
   showTmb: false,
   showGeneFreq: false,
@@ -136,6 +139,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       annotationUniqueValues: {},
       mutationColors: {},
       groupColumns: [],
+      groupValueOrder: {},
       pngUrl: null,
       pdfUrl: null,
       csvUrl: null,
@@ -201,6 +205,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setGroupColumns: (cols) => set({ groupColumns: cols }),
 
+  setGroupValueOrder: (col, order) =>
+    set((s) => ({
+      groupValueOrder: { ...s.groupValueOrder, [col]: order },
+    })),
+
   setPlotSetting: (key, value) => set({ [key]: value } as Partial<SessionState>),
 
   setRenderResult: (pngUrl, pdfUrl, csvUrl) =>
@@ -223,6 +232,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       data_row_cmaps: s.dataRowCmaps,
       mutation_colors: s.mutationColors,
       group_columns: s.groupColumns,
+      group_order: s.groupValueOrder,
       top_n_genes: s.topNGenes,
       show_tmb: s.showTmb,
       show_gene_freq: s.showGeneFreq,
