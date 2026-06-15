@@ -80,6 +80,10 @@ class RenderRequest(BaseModel):
     group_sort: dict[str, str] = {}
     top_n_genes: int = 20
     show_tmb: bool = False
+    # Panel/exome size in megabases. When provided (and >= the minimum reliable
+    # size), the per-sample mutation bar is shown as true TMB in mut/Mb instead
+    # of a raw count. None → show the honest mutation count.
+    panel_size_mb: float | None = None
     show_gene_freq: bool = False
     show_sample_labels: bool = False
     annotations_position: str = "bottom"

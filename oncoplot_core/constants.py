@@ -21,6 +21,31 @@ DEFAULT_MUT_COLORS = {
     "Multi_Hit":              "#333333",
 }
 
+# Non-synonymous (protein-altering) variant classifications eligible for the
+# mutation-burden / TMB count, following the cBioPortal convention. Synonymous
+# / silent / non-coding classes are excluded. Matched case-insensitively so
+# minor naming differences still line up. See the TMB research notes.
+NONSYNONYMOUS_CLASSES = {
+    "frame_shift_del",
+    "frame_shift_ins",
+    "in_frame_del",
+    "in_frame_ins",
+    "missense_mutation",
+    "nonsense_mutation",
+    "splice_site",
+    "nonstop_mutation",
+    "splice_region",
+}
+
+# Smallest panel size (Mb) for which a mut/Mb rate is meaningful. Below this the
+# sampling noise makes TMB unreliable (Friends of Cancer Research: PPA/NPA for
+# TMB-high vs -low calling degrades under ~0.667 Mb). cBioPortal returns NA
+# below 0.2 Mb.
+MIN_TMB_PANEL_MB = 0.667
+
+# FDA-recognized TMB-high cut-point (pembrolizumab / KEYNOTE-158), in mut/Mb.
+TMB_HIGH_THRESHOLD = 10.0
+
 FALLBACK_COLORS = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",

@@ -39,6 +39,7 @@ interface SessionState {
   // Plot settings
   topNGenes: number;
   showTmb: boolean;
+  panelSizeMb: number | null;
   showGeneFreq: boolean;
   showSampleLabels: boolean;
   annotationsPosition: string;
@@ -106,6 +107,7 @@ const initialState = {
   groupSort: {},
   topNGenes: 20,
   showTmb: false,
+  panelSizeMb: null,
   showGeneFreq: false,
   showSampleLabels: false,
   annotationsPosition: "bottom",
@@ -246,6 +248,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       ) as Record<string, "asc" | "desc">,
       top_n_genes: s.topNGenes,
       show_tmb: s.showTmb,
+      panel_size_mb: s.panelSizeMb,
       show_gene_freq: s.showGeneFreq,
       show_sample_labels: s.showSampleLabels,
       annotations_position: s.annotationsPosition,

@@ -50,6 +50,7 @@ export interface RenderRequest {
   group_sort: Record<string, "asc" | "desc">;
   top_n_genes: number;
   show_tmb: boolean;
+  panel_size_mb: number | null;
   show_gene_freq: boolean;
   show_sample_labels: boolean;
   annotations_position: string;

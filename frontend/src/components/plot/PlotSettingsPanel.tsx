@@ -39,6 +39,41 @@ export default function PlotSettingsPanel() {
               />
               <span className="text-slate-700">TMB bar</span>
             </label>
+            {s.showTmb && (
+              <div className="ml-6 space-y-1">
+                <span className="text-xs text-slate-500">
+                  Panel size (Mb) — optional
+                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    value={s.panelSizeMb ?? ""}
+                    placeholder="count"
+                    onChange={(e) =>
+                      s.setPlotSetting(
+                        "panelSizeMb",
+                        e.target.value === "" ? null : Number(e.target.value)
+                      )
+                    }
+                    className="w-20 rounded border border-slate-200 px-2 py-1 text-sm bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => s.setPlotSetting("panelSizeMb", 30)}
+                    className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  >
+                    WES (30)
+                  </button>
+                </div>
+                <p className="text-[11px] leading-tight text-slate-400">
+                  Blank → mutation count. Set a value → true TMB (mut/Mb),
+                  with the FDA ≥10 line. Counts non-synonymous variants;
+                  assumes somatic-filtered input.
+                </p>
+              </div>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"

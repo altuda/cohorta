@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from oncoplot_core import (
     build_mutation_matrix, sort_samples,
     draw_oncoplot, draw_annotation_plot,
-    DEFAULT_MUT_COLORS,
+    DEFAULT_MUT_COLORS, NONSYNONYMOUS_CLASSES, MIN_TMB_PANEL_MB,
 )
 
 from ..session_store import SessionData
@@ -75,9 +75,20 @@ def _build_figure(session: SessionData, req: RenderRequest):
         # per-sample mutation count; the displayed-genes matrix would massively
         # undercount it. "Multi_Hit" is a per-cell display artifact, so the
         # burden counts each variant by its actual classification instead.
+        # Only non-synonymous (protein-altering) classes count, per the
+        # cBioPortal/MSK convention; silent/synonymous variants are excluded.
         if mut_col is not None:
+            _cls = clean[mut_col].astype(str).str.lower()
+            burden_src = clean[_cls.isin(NONSYNONYMOUS_CLASSES)]
+            if burden_src.empty:
+                warnings.append(
+                    "No standard non-synonymous variant classifications were "
+                    "recognized; mutation burden counts all variant types."
+                )
+                burden_src = clean
             mutation_burden = (
-                clean.groupby([sample_col, mut_col]).size().unstack(fill_value=0)
+                burden_src.groupby([sample_col, mut_col])
+                .size().unstack(fill_value=0)
             )
         else:
             # Gene-as-colour mode: count distinct altered genes per sample.
@@ -138,12 +149,23 @@ def _build_figure(session: SessionData, req: RenderRequest):
             if mt not in mutation_colors:
                 mutation_colors[mt] = DEFAULT_MUT_COLORS.get(mt, "#808080")
 
+    # TMB: only express the per-sample bar as mut/Mb when a usable panel size is
+    # given. Below the reliable minimum, fall back to a plain count and warn.
+    panel_mb = req.panel_size_mb
+    if panel_mb is not None and panel_mb < MIN_TMB_PANEL_MB:
+        warnings.append(
+            f"Panel size {panel_mb:g} Mb is below the reliable minimum "
+            f"({MIN_TMB_PANEL_MB} Mb) for TMB; showing mutation count instead."
+        )
+        panel_mb = None
+
     # Render
     if matrix is not None:
         fig = draw_oncoplot(
             matrix=matrix,
             mutation_colors=mutation_colors,
             mutation_burden=mutation_burden,
+            panel_size_mb=panel_mb,
             clinical_data=clinical_df,
             clinical_cols=annot_cols,
             clinical_types=req.annotation_types,

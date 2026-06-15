@@ -9,7 +9,7 @@ import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
 from matplotlib.colors import ListedColormap, BoundaryNorm
 
-from .constants import BG_COLOR
+from .constants import BG_COLOR, TMB_HIGH_THRESHOLD
 from .render_shared import (
     render_data_rows,
     render_annotation_tracks,
@@ -23,6 +23,7 @@ def draw_oncoplot(
     matrix,
     mutation_colors,
     mutation_burden=None,
+    panel_size_mb=None,
     clinical_data=None,
     clinical_cols=None,
     clinical_types=None,
@@ -189,10 +190,14 @@ def draw_oncoplot(
 
     all_axes = []
 
-    # ── 1. Per-sample mutation-count stacked bar ───────────────
-    # Counts every variant in each sample across ALL genes (via mutation_burden),
-    # not just the displayed top-N — that is the real per-sample mutation load.
-    # Falls back to the displayed-matrix count only if no burden is supplied.
+    # ── 1. Per-sample mutation-burden stacked bar ──────────────
+    # Counts every non-synonymous variant in each sample across ALL genes (via
+    # mutation_burden), not just the displayed top-N — that is the real
+    # per-sample mutation load. Falls back to the displayed-matrix count only if
+    # no burden is supplied. When panel_size_mb is given the counts are divided
+    # by it to show true TMB in mut/Mb, with the FDA TMB-high line at 10.
+    _is_tmb = panel_size_mb is not None and panel_size_mb > 0
+    _scale = (1.0 / panel_size_mb) if _is_tmb else 1.0
     ax_tmb = fig.add_subplot(gs[tmb_row, 0])
     all_axes.append(ax_tmb)
     if show_tmb:
@@ -205,7 +210,7 @@ def draw_oncoplot(
             stack_order = [c for c in all_mut_types if c in burden.columns]
             stack_order += [c for c in burden.columns if c not in set(all_mut_types)]
             for mt in stack_order:
-                counts = burden[mt].values.astype(float)
+                counts = burden[mt].values.astype(float) * _scale
                 ax_tmb.bar(
                     x, counts, bottom=bottom_vals,
                     color=mutation_colors.get(mt, "#808080"),
@@ -214,7 +219,7 @@ def draw_oncoplot(
                 bottom_vals += counts
         else:
             for mt in all_mut_types:
-                counts = (matrix == mt).sum(axis=0).values.astype(float)
+                counts = (matrix == mt).sum(axis=0).values.astype(float) * _scale
                 ax_tmb.bar(
                     x, counts, bottom=bottom_vals,
                     color=mutation_colors.get(mt, "#808080"),
@@ -222,7 +227,22 @@ def draw_oncoplot(
                 )
                 bottom_vals += counts
         ax_tmb.set_xlim(-0.5, n_samples - 0.5)
-        ax_tmb.set_ylabel("Mutations", fontsize=fontsize)
+        if _is_tmb:
+            ax_tmb.set_ylabel("TMB (mut/Mb)", fontsize=fontsize)
+            # FDA TMB-high cut-point (KEYNOTE-158); only label it if in range.
+            if bottom_vals.max() >= TMB_HIGH_THRESHOLD * 0.5:
+                ax_tmb.axhline(
+                    TMB_HIGH_THRESHOLD, color="#444444",
+                    linestyle="--", linewidth=0.8,
+                )
+                ax_tmb.text(
+                    n_samples - 0.5, TMB_HIGH_THRESHOLD,
+                    f" TMB-high ≥{TMB_HIGH_THRESHOLD:g}",
+                    va="bottom", ha="right",
+                    fontsize=max(fontsize - 2, 5), color="#444444",
+                )
+        else:
+            ax_tmb.set_ylabel("Mutations", fontsize=fontsize)
         ax_tmb.tick_params(axis="x", bottom=False, labelbottom=False)
         ax_tmb.tick_params(axis="y", labelsize=fontsize - 1)
         ax_tmb.spines[["top", "right", "bottom"]].set_visible(False)
