@@ -74,6 +74,10 @@ class RenderRequest(BaseModel):
     # Custom left-to-right order of group blocks, keyed by grouping column name:
     # {column: [value, ...]}. Values not listed fall back to mutation-burden order.
     group_order: dict[str, list[str]] = {}
+    # Numeric ordering for a grouping column, keyed by name: {column: "asc"|"desc"}.
+    # When set, that level orders samples by the numeric value instead of producing
+    # one block per distinct value (e.g. order by age rather than grouping on it).
+    group_sort: dict[str, str] = {}
     top_n_genes: int = 20
     show_tmb: bool = False
     show_gene_freq: bool = False
@@ -85,7 +89,8 @@ class RenderRequest(BaseModel):
 
 
 class RenderResponse(BaseModel):
-    png_url: str
+    png_url: str               # low-DPI on-screen preview
+    png_download_url: str      # 300-DPI PNG, built lazily on download
     pdf_url: str | None
     csv_url: str | None
     warnings: list[str]

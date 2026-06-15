@@ -25,21 +25,23 @@ from ..session_store import SessionData
 from ..models import RenderRequest
 
 
+# Resolution of the on-screen preview PNG. Print-quality 300 DPI is reserved
+# for the download (built lazily); the live preview only needs screen pixels.
+PREVIEW_DPI = 110
+EXPORT_DPI = 300
+
+
 def _config_hash(req: RenderRequest) -> str:
     raw = req.model_dump_json(exclude_none=False)
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
-    """Render the plot and cache PNG/PDF/CSV in session.
+def _build_figure(session: SessionData, req: RenderRequest):
+    """Build the matplotlib figure for *req*.
 
-    Returns a list of warning messages.
+    Returns ``(fig, matrix, warnings)``. This is the expensive step shared by the
+    interactive preview and the lazy hi-res / PDF exports.
     """
-    # Check cache
-    h = _config_hash(req)
-    if session.render_config_hash == h and session.cached_png is not None:
-        return []
-
     df = session.df
     roles = req.roles
     warnings = []
@@ -73,17 +75,20 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
         matrix = None
         sample_data = df.drop_duplicates(subset=[sample_col]).set_index(sample_col)
 
-    # Group-by (with optional custom per-level block order)
+    # Group-by (with optional custom per-level block order or numeric sort)
     group_series_list = []
     group_orders = []
+    group_sort_modes = []
     for gc in req.group_columns:
         if gc in sample_data.columns:
             group_series_list.append(sample_data[gc])
             group_orders.append(req.group_order.get(gc))
+            group_sort_modes.append(req.group_sort.get(gc))
 
     sorted_samples, group_boundaries = sort_samples(
         matrix, group_series_list if group_series_list else None,
         group_orders=group_orders if group_series_list else None,
+        group_sort_modes=group_sort_modes if group_series_list else None,
     )
     if not sorted_samples and matrix is None:
         sorted_samples = sample_data.index.tolist()
@@ -155,14 +160,29 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
             fontsize=req.fontsize,
         )
 
-    # Export to buffers
-    buf_png = BytesIO()
-    fig.savefig(buf_png, format="png", dpi=300, bbox_inches="tight")
-    session.cached_png = buf_png.getvalue()
+    return fig, matrix, warnings
 
-    buf_pdf = BytesIO()
-    fig.savefig(buf_pdf, format="pdf", bbox_inches="tight")
-    session.cached_pdf = buf_pdf.getvalue()
+
+def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
+    """Render the interactive preview and cache it in the session.
+
+    Only the lightweight low-DPI preview PNG (and the cheap CSV) are produced
+    here so the auto-render loop stays responsive. The print-quality PNG and the
+    PDF are deferred to :func:`render_export`, built on demand at download time.
+
+    Returns a list of warning messages.
+    """
+    # Check cache
+    h = _config_hash(req)
+    if session.render_config_hash == h and session.cached_png is not None:
+        return session.cached_warnings
+
+    fig, matrix, warnings = _build_figure(session, req)
+
+    buf_png = BytesIO()
+    fig.savefig(buf_png, format="png", dpi=PREVIEW_DPI)
+    session.cached_png = buf_png.getvalue()
+    plt.close(fig)
 
     if matrix is not None:
         csv_buf = BytesIO()
@@ -171,7 +191,37 @@ def render_plot(session: SessionData, req: RenderRequest) -> list[str]:
     else:
         session.cached_csv = None
 
-    plt.close(fig)
-
+    # Invalidate the lazy exports; they are rebuilt from render_req on demand.
+    session.cached_png_hires = None
+    session.cached_pdf = None
+    session.render_req = req
+    session.cached_warnings = warnings
     session.render_config_hash = h
     return warnings
+
+
+def render_export(session: SessionData, fmt: str) -> bytes | None:
+    """Return the print-quality export for *fmt* (``"png"`` or ``"pdf"``).
+
+    Built lazily from the last render request and cached, so repeated downloads
+    are free. Returns ``None`` if nothing has been rendered yet.
+    """
+    if fmt == "png" and session.cached_png_hires is not None:
+        return session.cached_png_hires
+    if fmt == "pdf" and session.cached_pdf is not None:
+        return session.cached_pdf
+    if session.render_req is None:
+        return None
+
+    fig, _matrix, _warnings = _build_figure(session, session.render_req)
+    buf = BytesIO()
+    if fmt == "pdf":
+        fig.savefig(buf, format="pdf", bbox_inches="tight")
+        session.cached_pdf = buf.getvalue()
+        out = session.cached_pdf
+    else:
+        fig.savefig(buf, format="png", dpi=EXPORT_DPI, bbox_inches="tight")
+        session.cached_png_hires = buf.getvalue()
+        out = session.cached_png_hires
+    plt.close(fig)
+    return out

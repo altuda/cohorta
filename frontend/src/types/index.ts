@@ -47,6 +47,7 @@ export interface RenderRequest {
   mutation_colors: Record<string, string>;
   group_columns: string[];
   group_order: Record<string, string[]>;
+  group_sort: Record<string, "asc" | "desc">;
   top_n_genes: number;
   show_tmb: boolean;
   show_gene_freq: boolean;
@@ -59,6 +60,7 @@ export interface RenderRequest {
 
 export interface RenderResponse {
   png_url: string;
+  png_download_url: string;
   pdf_url: string | null;
   csv_url: string | null;
   warnings: string[];

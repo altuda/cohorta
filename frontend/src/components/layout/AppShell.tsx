@@ -29,7 +29,7 @@ export default function AppShell() {
     const req = buildRef.current();
     renderRef.current.mutate(req, {
       onSuccess: (data) => {
-        setRenderResult(data.png_url, data.pdf_url, data.csv_url);
+        setRenderResult(data.png_url, data.png_download_url, data.pdf_url, data.csv_url);
         setWarnings(data.warnings ?? []);
       },
     });

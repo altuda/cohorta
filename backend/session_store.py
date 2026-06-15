@@ -21,10 +21,15 @@ class SessionData:
     columns: list[str]
     auto_roles: dict[str, str]
     # Cached render output
-    cached_png: bytes | None = None
-    cached_pdf: bytes | None = None
+    cached_png: bytes | None = None           # low-DPI on-screen preview
+    cached_png_hires: bytes | None = None      # 300-DPI PNG, built lazily on download
+    cached_pdf: bytes | None = None            # vector PDF, built lazily on download
     cached_csv: bytes | None = None
+    cached_warnings: list[str] = field(default_factory=list)
     render_config_hash: str | None = None
+    # Last render request, kept so the hi-res PNG / PDF can be regenerated on
+    # demand without re-running the whole interactive loop.
+    render_req: Any = None
 
 
 class SessionStore:

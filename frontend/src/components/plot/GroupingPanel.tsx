@@ -49,6 +49,39 @@ function SortableValue({ id, label }: { id: string; label: string }) {
   );
 }
 
+/** Asc/Desc/Blocks selector for an integer or float grouping column. */
+function NumericOrder({ col }: { col: string }) {
+  const mode = useSessionStore((s) => s.groupSort[col]);
+  const setGroupSort = useSessionStore((s) => s.setGroupSort);
+
+  const btn = (active: boolean) =>
+    `px-2 py-0.5 rounded border text-[11px] ${
+      active
+        ? "border-blue-400 bg-blue-50 text-blue-700"
+        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+    }`;
+
+  return (
+    <div className="mt-1.5 ml-1 pl-2 border-l-2 border-slate-100">
+      <p className="text-[10px] text-slate-400 mb-1">Order samples by value</p>
+      <div className="flex gap-1">
+        <button className={btn(mode === "asc")} onClick={() => setGroupSort(col, "asc")}>
+          Ascending ↑
+        </button>
+        <button className={btn(mode === "desc")} onClick={() => setGroupSort(col, "desc")}>
+          Descending ↓
+        </button>
+        <button
+          className={btn(mode === "blocks")}
+          onClick={() => setGroupSort(col, "blocks")}
+        >
+          Blocks
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Draggable list of a grouping column's values, controlling block order. */
 function SubgroupOrder({ col }: { col: string }) {
   const order = useSessionStore((s) => s.groupValueOrder[col]);
@@ -97,6 +130,8 @@ export default function GroupingPanel() {
   const setGroupColumns = useSessionStore((s) => s.setGroupColumns);
   const groupValueOrder = useSessionStore((s) => s.groupValueOrder);
   const setGroupValueOrder = useSessionStore((s) => s.setGroupValueOrder);
+  const groupSort = useSessionStore((s) => s.groupSort);
+  const setGroupSort = useSessionStore((s) => s.setGroupSort);
 
   const { data: colData } = useColumns(sessionId);
 
@@ -107,6 +142,18 @@ export default function GroupingPanel() {
       if (c.unique_values) m[c.name] = c.unique_values;
     });
     return m;
+  }, [colData]);
+
+  // Columns whose dtype is integer/float — these can be ordered numerically
+  // instead of split into one block per distinct value.
+  const numericCols = useMemo(() => {
+    const s = new Set<string>();
+    (colData?.columns ?? []).forEach((c) => {
+      const d = c.dtype.toLowerCase();
+      if (d.startsWith("int") || d.startsWith("float") || d.startsWith("uint"))
+        s.add(c.name);
+    });
+    return s;
   }, [colData]);
 
   const sampleCol = Object.entries(roles).find(
@@ -133,8 +180,21 @@ export default function GroupingPanel() {
       if (!groupValueOrder[gc] && uniqueMap[gc]?.length) {
         setGroupValueOrder(gc, uniqueMap[gc]);
       }
+      // Numeric columns default to ascending order rather than one block per
+      // value (e.g. age). A user can still switch back to "Blocks".
+      if (numericCols.has(gc) && groupSort[gc] === undefined) {
+        setGroupSort(gc, "asc");
+      }
     });
-  }, [groupColumns, uniqueMap, groupValueOrder, setGroupValueOrder]);
+  }, [
+    groupColumns,
+    uniqueMap,
+    numericCols,
+    groupValueOrder,
+    groupSort,
+    setGroupValueOrder,
+    setGroupSort,
+  ]);
 
   const addLevel = () => {
     if (nLevels < 4) setGroupColumns([...groupColumns, ""]);
@@ -175,8 +235,23 @@ export default function GroupingPanel() {
                   ))}
               </select>
             </label>
-            {gc && uniqueMap[gc] && <SubgroupOrder col={gc} />}
-            {gc && colData && !uniqueMap[gc] && (
+            {gc && numericCols.has(gc) && (
+              <>
+                <NumericOrder col={gc} />
+                {groupSort[gc] === "blocks" &&
+                  (uniqueMap[gc] ? (
+                    <SubgroupOrder col={gc} />
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-1 ml-1">
+                      Too many distinct values to reorder
+                    </p>
+                  ))}
+              </>
+            )}
+            {gc && !numericCols.has(gc) && uniqueMap[gc] && (
+              <SubgroupOrder col={gc} />
+            )}
+            {gc && !numericCols.has(gc) && colData && !uniqueMap[gc] && (
               <p className="text-[10px] text-slate-400 mt-1 ml-1">
                 Too many distinct values to reorder
               </p>

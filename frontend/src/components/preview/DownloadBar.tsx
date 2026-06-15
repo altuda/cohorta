@@ -9,14 +9,14 @@ function downloadUrl(url: string, filename: string) {
 }
 
 export default function DownloadBar() {
-  const { pngUrl, pdfUrl, csvUrl } = useSessionStore();
+  const { pngUrl, pngDownloadUrl, pdfUrl, csvUrl } = useSessionStore();
 
   if (!pngUrl) return null;
 
   return (
     <div className="flex gap-3 mt-4">
       <button
-        onClick={() => downloadUrl(pngUrl, "oncoplot.png")}
+        onClick={() => downloadUrl(pngDownloadUrl ?? pngUrl, "oncoplot.png")}
         className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
       >
         Download PNG

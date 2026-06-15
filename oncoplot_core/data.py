@@ -33,7 +33,8 @@ def build_mutation_matrix(df, sample_col, gene_col, mut_col):
     return matrix.loc[freq.index]
 
 
-def sort_samples(matrix, group_series_list=None, group_orders=None):
+def sort_samples(matrix, group_series_list=None, group_orders=None,
+                 group_sort_modes=None):
     """Waterfall-sort samples with optional multi-level hierarchical grouping.
 
     Parameters
@@ -47,6 +48,12 @@ def sort_samples(matrix, group_series_list=None, group_orders=None):
         entry is an explicit ordering of that level's group values, or ``None``
         to keep the default mutation-burden order.  Values absent from a custom
         list are appended after the listed ones, in burden order.
+    group_sort_modes : list[str] or None
+        Per-level numeric sort mode (aligned to ``group_series_list``): one of
+        ``"asc"``, ``"desc"`` or ``None``.  When set, that level orders the
+        samples in its scope by the column's numeric value instead of splitting
+        them into one block per distinct value.  Such a level draws no group
+        boundaries and acts as the terminal sort for its branch.
 
     Returns
     -------
@@ -121,10 +128,20 @@ def sort_samples(matrix, group_series_list=None, group_orders=None):
 
         return ordered, boundaries_at_level
 
+    def _sort_mode(level):
+        """Return 'asc'/'desc' if this level is a numeric sort, else None."""
+        if group_sort_modes and level < len(group_sort_modes):
+            m = group_sort_modes[level]
+            if m in ("asc", "desc"):
+                return m
+        return None
+
     # Pre-compute a global sort rank for every level so that inner
     # groups keep the same order across all parent groups.
     _global_rank = {}
     for _lvl, _gs in enumerate(group_series_list):
+        if _sort_mode(_lvl):
+            continue  # numeric-sort levels produce no blocks/ranks
         _uvals = list(_gs.dropna().unique())
         if binary is not None:
             def _global_burden(g, _s=_gs):
@@ -160,6 +177,16 @@ def sort_samples(matrix, group_series_list=None, group_orders=None):
                     by=sort_cols, ascending=False,
                 ).index.tolist()
             return list(sample_list)
+
+        mode = _sort_mode(level)
+        if mode:
+            # Numeric ordering: sort this scope by the column's value and stop.
+            # No per-value blocks and no boundaries are emitted for this level.
+            gs = group_series_list[level]
+            vals = pd.to_numeric(gs.reindex(sample_list), errors="coerce")
+            return vals.sort_values(
+                ascending=(mode == "asc"), kind="stable", na_position="last",
+            ).index.tolist()
 
         gs = group_series_list[level]
         groups = gs.reindex(sample_list)

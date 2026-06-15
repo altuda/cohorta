@@ -32,6 +32,9 @@ interface SessionState {
   // Grouping
   groupColumns: string[];
   groupValueOrder: Record<string, string[]>;
+  // Per-column ordering mode for numeric grouping columns. "blocks" keeps the
+  // one-block-per-value behaviour; only "asc"/"desc" are sent to the backend.
+  groupSort: Record<string, "asc" | "desc" | "blocks">;
 
   // Plot settings
   topNGenes: number;
@@ -46,6 +49,7 @@ interface SessionState {
   // Render state
   renderVersion: number;
   pngUrl: string | null;
+  pngDownloadUrl: string | null;
   pdfUrl: string | null;
   csvUrl: string | null;
 
@@ -66,12 +70,14 @@ interface SessionState {
   setMutationColorsBatch: (colors: Record<string, string>) => void;
   setGroupColumns: (cols: string[]) => void;
   setGroupValueOrder: (col: string, order: string[]) => void;
+  setGroupSort: (col: string, mode: "asc" | "desc" | "blocks") => void;
   setPlotSetting: <K extends keyof SessionState>(
     key: K,
     value: SessionState[K]
   ) => void;
   setRenderResult: (
     pngUrl: string,
+    pngDownloadUrl: string,
     pdfUrl: string | null,
     csvUrl: string | null
   ) => void;
@@ -97,6 +103,7 @@ const initialState = {
   mutationColors: {},
   groupColumns: [],
   groupValueOrder: {},
+  groupSort: {},
   topNGenes: 20,
   showTmb: false,
   showGeneFreq: false,
@@ -107,6 +114,7 @@ const initialState = {
   fontsize: 8,
   renderVersion: 0,
   pngUrl: null,
+  pngDownloadUrl: null,
   pdfUrl: null,
   csvUrl: null,
 };
@@ -134,7 +142,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       mutationColors: {},
       groupColumns: [],
       groupValueOrder: {},
+      groupSort: {},
       pngUrl: null,
+      pngDownloadUrl: null,
       pdfUrl: null,
       csvUrl: null,
       renderVersion: 0,
@@ -201,11 +211,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       groupValueOrder: { ...s.groupValueOrder, [col]: order },
     })),
 
+  setGroupSort: (col, mode) =>
+    set((s) => ({ groupSort: { ...s.groupSort, [col]: mode } })),
+
   setPlotSetting: (key, value) => set({ [key]: value } as Partial<SessionState>),
 
-  setRenderResult: (pngUrl, pdfUrl, csvUrl) =>
+  setRenderResult: (pngUrl, pngDownloadUrl, pdfUrl, csvUrl) =>
     set((s) => ({
       pngUrl,
+      pngDownloadUrl,
       pdfUrl,
       csvUrl,
       renderVersion: s.renderVersion + 1,
@@ -223,6 +237,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       mutation_colors: s.mutationColors,
       group_columns: s.groupColumns,
       group_order: s.groupValueOrder,
+      // Only numeric asc/desc choices are meaningful to the backend; "blocks"
+      // is the default categorical behaviour and is omitted.
+      group_sort: Object.fromEntries(
+        Object.entries(s.groupSort).filter(
+          ([, m]) => m === "asc" || m === "desc"
+        )
+      ) as Record<string, "asc" | "desc">,
       top_n_genes: s.topNGenes,
       show_tmb: s.showTmb,
       show_gene_freq: s.showGeneFreq,
