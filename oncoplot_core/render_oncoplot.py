@@ -22,6 +22,7 @@ from .render_shared import (
 def draw_oncoplot(
     matrix,
     mutation_colors,
+    mutation_burden=None,
     clinical_data=None,
     clinical_cols=None,
     clinical_types=None,
@@ -188,24 +189,40 @@ def draw_oncoplot(
 
     all_axes = []
 
-    # ── 1. TMB stacked bar ─────────────────────────────────────
+    # ── 1. Per-sample mutation-count stacked bar ───────────────
+    # Counts every variant in each sample across ALL genes (via mutation_burden),
+    # not just the displayed top-N — that is the real per-sample mutation load.
+    # Falls back to the displayed-matrix count only if no burden is supplied.
     ax_tmb = fig.add_subplot(gs[tmb_row, 0])
     all_axes.append(ax_tmb)
     if show_tmb:
         bottom_vals = np.zeros(n_samples)
-        for mt in all_mut_types:
-            counts = (matrix == mt).sum(axis=0).values.astype(float)
-            ax_tmb.bar(
-                np.arange(n_samples),
-                counts,
-                bottom=bottom_vals,
-                color=mutation_colors.get(mt, "#808080"),
-                width=1.0,
-                linewidth=0,
-            )
-            bottom_vals += counts
+        x = np.arange(n_samples)
+        if mutation_burden is not None:
+            burden = mutation_burden.reindex(index=samples, fill_value=0)
+            # Stack legend types first (consistent colour order), then any
+            # burden-only classes so the totals stay exact.
+            stack_order = [c for c in all_mut_types if c in burden.columns]
+            stack_order += [c for c in burden.columns if c not in set(all_mut_types)]
+            for mt in stack_order:
+                counts = burden[mt].values.astype(float)
+                ax_tmb.bar(
+                    x, counts, bottom=bottom_vals,
+                    color=mutation_colors.get(mt, "#808080"),
+                    width=1.0, linewidth=0,
+                )
+                bottom_vals += counts
+        else:
+            for mt in all_mut_types:
+                counts = (matrix == mt).sum(axis=0).values.astype(float)
+                ax_tmb.bar(
+                    x, counts, bottom=bottom_vals,
+                    color=mutation_colors.get(mt, "#808080"),
+                    width=1.0, linewidth=0,
+                )
+                bottom_vals += counts
         ax_tmb.set_xlim(-0.5, n_samples - 0.5)
-        ax_tmb.set_ylabel("TMB", fontsize=fontsize)
+        ax_tmb.set_ylabel("Mutations", fontsize=fontsize)
         ax_tmb.tick_params(axis="x", bottom=False, labelbottom=False)
         ax_tmb.tick_params(axis="y", labelsize=fontsize - 1)
         ax_tmb.spines[["top", "right", "bottom"]].set_visible(False)
@@ -259,22 +276,21 @@ def draw_oncoplot(
     # ── 3. Gene-frequency bar ──────────────────────────────────
     if show_gene_freq:
         ax_freq = fig.add_subplot(gs[mat_row, 1], sharey=ax_mat)
-        freq_pct = matrix.notna().sum(axis=1) / n_samples * 100
-        bar_colors = []
-        for g in genes:
-            gene_vals = matrix.loc[g].dropna()
-            if len(gene_vals) > 0:
-                dominant = gene_vals.value_counts().index[0]
-                bar_colors.append(mutation_colors.get(dominant, "#808080"))
-            else:
-                bar_colors.append("#808080")
-        ax_freq.barh(
-            np.arange(n_genes),
-            freq_pct.values,
-            color=bar_colors,
-            height=0.75,
-            linewidth=0,
-        )
+        # Stacked horizontal bar: each gene's bar is broken down by mutation
+        # type (colours match the heatmap), so the segments show the alteration
+        # composition rather than a single "dominant type" colour. The total
+        # length still equals the % of samples carrying any alteration, since
+        # every mutated cell holds exactly one type.
+        y = np.arange(n_genes)
+        left_vals = np.zeros(n_genes)
+        for mt in all_mut_types:
+            pct = (matrix == mt).sum(axis=1).values.astype(float) / n_samples * 100
+            ax_freq.barh(
+                y, pct, left=left_vals,
+                color=mutation_colors.get(mt, "#808080"),
+                height=0.75, linewidth=0,
+            )
+            left_vals += pct
         ax_freq.set_xlabel("% Samples", fontsize=fontsize)
         ax_freq.tick_params(axis="y", left=False, labelleft=False)
         ax_freq.tick_params(axis="x", labelsize=fontsize - 1)

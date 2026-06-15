@@ -70,9 +70,27 @@ def _build_figure(session: SessionData, req: RenderRequest):
         matrix = build_mutation_matrix(clean, sample_col, gene_col, mut_col)
         matrix = matrix.iloc[:req.top_n_genes]
 
+        # Per-sample mutation burden over the FULL dataset (every gene, not just
+        # the displayed top-N), stacked by mutation type. This is the real
+        # per-sample mutation count; the displayed-genes matrix would massively
+        # undercount it. "Multi_Hit" is a per-cell display artifact, so the
+        # burden counts each variant by its actual classification instead.
+        if mut_col is not None:
+            mutation_burden = (
+                clean.groupby([sample_col, mut_col]).size().unstack(fill_value=0)
+            )
+        else:
+            # Gene-as-colour mode: count distinct altered genes per sample.
+            mutation_burden = (
+                clean.drop_duplicates(subset=[sample_col, gene_col])
+                .groupby([sample_col, gene_col]).size()
+                .unstack(fill_value=0)
+            )
+
         sample_data = clean.drop_duplicates(subset=[sample_col]).set_index(sample_col)
     else:
         matrix = None
+        mutation_burden = None
         sample_data = df.drop_duplicates(subset=[sample_col]).set_index(sample_col)
 
     # Group-by (with optional custom per-level block order or numeric sort)
@@ -108,14 +126,15 @@ def _build_figure(session: SessionData, req: RenderRequest):
         for col, opts in req.track_options.items()
     }
 
-    # Mutation colors: apply defaults for missing types
+    # Mutation colors: apply defaults for missing types. Cover both the matrix
+    # types (heatmap/legend) and any burden-only classes so the top bar segments
+    # always have a defined colour.
     mutation_colors = dict(req.mutation_colors)
     if matrix is not None:
-        all_types = sorted(
-            [t for t in matrix.stack().unique() if pd.notna(t)],
-            key=str,
-        )
-        for mt in all_types:
+        all_types = [t for t in matrix.stack().unique() if pd.notna(t)]
+        if mutation_burden is not None:
+            all_types = all_types + list(mutation_burden.columns)
+        for mt in sorted(set(all_types), key=str):
             if mt not in mutation_colors:
                 mutation_colors[mt] = DEFAULT_MUT_COLORS.get(mt, "#808080")
 
@@ -124,6 +143,7 @@ def _build_figure(session: SessionData, req: RenderRequest):
         fig = draw_oncoplot(
             matrix=matrix,
             mutation_colors=mutation_colors,
+            mutation_burden=mutation_burden,
             clinical_data=clinical_df,
             clinical_cols=annot_cols,
             clinical_types=req.annotation_types,

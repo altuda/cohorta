@@ -86,7 +86,7 @@ oncoplot/
     helpers.py                     # _get_cmap, _palette_colors, _auto_assign_roles
     data.py                        # build_mutation_matrix, sort_samples
     render_shared.py               # Shared rendering helpers (tracks, legends, separators)
-    render_oncoplot.py             # draw_oncoplot (matrix + TMB + gene freq + tracks)
+    render_oncoplot.py             # draw_oncoplot (matrix + mutation count + gene freq + tracks)
     render_annotation.py           # draw_annotation_plot (annotation-only mode)
   backend/
     main.py                        # FastAPI app, CORS, SPA static mount
@@ -134,7 +134,6 @@ oncoplot/
           PlotPreview.tsx          # <img> with loading skeleton
           DownloadBar.tsx          # PNG/PDF/CSV download buttons
         ErrorBoundary.tsx          # React error boundary
-  app.py                           # Legacy Streamlit entry point
 ```
 
 ## Tech stack
