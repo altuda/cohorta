@@ -17,6 +17,7 @@ from .render_shared import (
     build_categorical_legend_handles,
     measure_label_height_in,
     annotation_track_heights,
+    plan_group_header_levels,
 )
 
 
@@ -103,7 +104,17 @@ def draw_oncoplot(
     # Group section labels are placed in a header band under the title (in
     # figure coords, after layout) rather than stacked on the TMB/matrix axis,
     # so they sit consistently regardless of TMB / annotation / label position.
-    header_band_h = _n_grp_levels * fontsize * 2.6 / 72
+    # Each level decides its own orientation/font/height so crowded (crumbled)
+    # subgroups flip to vertical instead of overlapping — see
+    # plan_group_header_levels. The band height is the sum of the per-level slots.
+    _wr0_est = max(n_samples * 0.25, 6)
+    _per_sample_in = (
+        (fig_width * (0.95 - 0.08) * _wr0_est / (_wr0_est + 3)) / max(n_samples, 1)
+    )
+    _grp_plan = plan_group_header_levels(
+        group_boundaries, _per_sample_in, fontsize
+    )
+    header_band_h = sum(p["height_in"] for p in _grp_plan.values())
     tmb_h = 2.0 if show_tmb else 0.001
     mat_h = max(n_genes * 0.45, 3.0)
     data_h = 0.6
@@ -405,19 +416,26 @@ def draw_oncoplot(
     # Group section labels: a header band between the title and the content.
     # x is taken from the matrix axis (after layout) so labels centre over the
     # right columns; y is stacked by level with the outermost level on top.
-    if group_boundaries and _n_grp_levels:
-        _band_frac = header_band_h / fig_height
+    if group_boundaries and _n_grp_levels and _grp_plan:
         _inv = fig.transFigure.inverted()
+        _band_top_in = header_band_h  # measured from top_margin upward
+        # Stack levels from the top of the band down: outermost level (0) on top.
+        _cursor_in = _band_top_in
         for lvl in sorted(group_boundaries):
-            _slot_center = (_n_grp_levels - lvl - 0.5) / _n_grp_levels
-            _y = top_margin + _band_frac * _slot_center
+            _p = _grp_plan[lvl]
+            _h_in = _p["height_in"]
+            _center_in = _cursor_in - _h_in / 2.0
+            _cursor_in -= _h_in
+            _y = top_margin + _center_in / fig_height
+            _vertical = _p["orient"] == "v"
             for (lbl, start, end) in group_boundaries[lvl]:
                 _cx = (start + end - 1) / 2.0
                 _fx = _inv.transform(ax_mat.transData.transform((_cx, 0)))[0]
                 fig.text(
                     _fx, _y, lbl,
                     ha="center", va="center",
-                    fontsize=max(fontsize - min(lvl, 2), 5),
+                    rotation=90 if _vertical else 0,
+                    fontsize=_p["font"],
                     fontweight="bold" if lvl == 0 else "semibold",
                 )
 

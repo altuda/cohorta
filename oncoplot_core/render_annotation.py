@@ -12,6 +12,7 @@ from .render_shared import (
     build_categorical_legend_handles,
     measure_label_height_in,
     annotation_track_heights,
+    plan_group_header_levels,
 )
 
 
@@ -48,8 +49,17 @@ def draw_annotation_plot(
 
     # ── Figure geometry ─────────────────────────────────────────
     _n_grp_levels = len(group_boundaries)
-    _grp_label_h = _n_grp_levels * fontsize * 2.5 / 72
-    header_h = max(0.001, _grp_label_h)
+    # Adaptive group-header band: each level keeps horizontal labels if they fit
+    # their blocks, else shrinks or flips to vertical (see
+    # plan_group_header_levels) so crumbled subgroups don't overlap.
+    _wr0_est = max(n_samples * 0.25, 6)
+    _per_sample_in = (
+        (fig_width * (0.95 - 0.08) * _wr0_est / (_wr0_est + 3)) / max(n_samples, 1)
+    )
+    _grp_plan = plan_group_header_levels(
+        group_boundaries, _per_sample_in, fontsize
+    )
+    header_h = max(0.001, sum(p["height_in"] for p in _grp_plan.values()))
     data_h = 0.6
     trk_heights = annotation_track_heights(
         clinical_cols, clinical_types, track_options
@@ -177,14 +187,12 @@ def draw_annotation_plot(
             samples, rotation=90, fontsize=max(fontsize - 2, 4), ha="right",
         )
 
-    # ── Group separators & labels ───────────────────────────────
-    if group_boundaries and _first_ax is not None:
+    # ── Group separator lines (labels drawn in the header band below) ──
+    if group_boundaries and all_axes:
         n_levels = len(group_boundaries)
-        ylim = _first_ax.get_ylim()
-        y_top = max(ylim)
         render_group_separators(
-            group_boundaries, all_axes, _first_ax, y_top,
-            n_levels, fontsize,
+            group_boundaries, all_axes, None, 0,
+            n_levels, fontsize, draw_labels=False,
         )
 
     # ── Margins, legend & title (inches-based, see budget above) ──
@@ -219,6 +227,30 @@ def draw_annotation_plot(
             handleheight=1.0,
             columnspacing=1.0,
         )
+
+    # Group section labels in the header band (top content row). x is taken from
+    # the first track axis after layout; levels stack downward from the top with
+    # the outermost level on top, each using its planned orientation/font.
+    if group_boundaries and _grp_plan and _first_ax is not None:
+        _inv = fig.transFigure.inverted()
+        _cursor_in = 0.0
+        for lvl in sorted(group_boundaries):
+            _p = _grp_plan[lvl]
+            _h_in = _p["height_in"]
+            _center_from_top = _cursor_in + _h_in / 2.0
+            _cursor_in += _h_in
+            _y = top_margin - _center_from_top / fig_height
+            _vertical = _p["orient"] == "v"
+            for (lbl, start, end) in group_boundaries[lvl]:
+                _cx = (start + end - 1) / 2.0
+                _fx = _inv.transform(_first_ax.transData.transform((_cx, 0)))[0]
+                fig.text(
+                    _fx, _y, lbl,
+                    ha="center", va="center",
+                    rotation=90 if _vertical else 0,
+                    fontsize=_p["font"],
+                    fontweight="bold" if lvl == 0 else "semibold",
+                )
 
     if title is not None:
         fig.suptitle(

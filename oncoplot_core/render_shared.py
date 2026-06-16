@@ -68,6 +68,84 @@ def _style_value_track(ax, label, n_samples, fontsize, vmin, vmax):
     )
 
 
+def measure_text_width_in(texts, fontsize, dpi=100):
+    """Rendered width (inches) of each string at *fontsize*, keyed by str(text).
+
+    Measures real bounding boxes on a throwaway figure (like
+    :func:`measure_label_height_in`) so group-header fitting reflects the actual
+    proportional-font widths rather than character-count guesses. Width scales
+    linearly with fontsize, so callers can rescale a single measurement.
+    """
+    out = {}
+    if not texts:
+        return out
+    fig_tmp = plt.figure(figsize=(1, 1), dpi=dpi)
+    try:
+        renderer = fig_tmp.canvas.get_renderer()
+        for t in texts:
+            txt = fig_tmp.text(0, 0, str(t), fontsize=fontsize)
+            bb = txt.get_window_extent(renderer)
+            txt.remove()
+            out[str(t)] = bb.width / dpi
+    finally:
+        plt.close(fig_tmp)
+    return out
+
+
+def plan_group_header_levels(
+    group_boundaries, per_sample_in, fontsize, pad_in=0.06,
+):
+    """Decide per-level orientation/font/height for the group-header band.
+
+    Returns ``{level: {"orient": "h"|"v", "font": float, "height_in": float}}``.
+    For each grouping level the labels are kept horizontal if they fit their
+    blocks (optionally shrunk to a 5 pt floor); when even that overflows — the
+    "crumbled subgroup" case — the level flips to vertical so neighbours can no
+    longer overlap, and the band height grows to hold the longest label.
+    """
+    plan = {}
+    if not group_boundaries:
+        return plan
+    _font_floor = 5.0
+    for lvl in sorted(group_boundaries):
+        base_f = float(max(fontsize - min(lvl, 2), 5))
+        blocks = group_boundaries[lvl]
+        widths = measure_text_width_in([lbl for lbl, _, _ in blocks], base_f)
+
+        fits = True
+        min_block_in = float("inf")
+        max_lbl_in = 0.0
+        f_fit = base_f
+        for lbl, start, end in blocks:
+            bw = max((end - start), 1) * per_sample_in
+            lw = widths.get(str(lbl), 0.0)
+            min_block_in = min(min_block_in, bw)
+            max_lbl_in = max(max_lbl_in, lw)
+            if lw > bw * 0.95:
+                fits = False
+            if lw > 0:
+                f_fit = min(f_fit, base_f * (bw * 0.95) / lw)
+
+        if fits:
+            plan[lvl] = {
+                "orient": "h", "font": base_f,
+                "height_in": base_f * 1.6 / 72 + pad_in,
+            }
+        elif f_fit >= _font_floor:
+            plan[lvl] = {
+                "orient": "h", "font": f_fit,
+                "height_in": f_fit * 1.6 / 72 + pad_in,
+            }
+        else:
+            # Vertical: pick a font whose (rotated) horizontal footprint still
+            # fits the narrowest block, so vertical labels don't overlap either.
+            vfont = min(base_f, max(min_block_in * 72 / 1.4, 4.0))
+            vfont = max(vfont, 4.0)
+            band_in = max_lbl_in * (vfont / base_f) + 2 * pad_in
+            plan[lvl] = {"orient": "v", "font": vfont, "height_in": band_in}
+    return plan
+
+
 def measure_label_height_in(samples, fontsize, rotation=90, pad_in=0.08, dpi=100):
     """Vertical extent (inches) the sample labels need when rotated.
 
