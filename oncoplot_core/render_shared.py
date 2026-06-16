@@ -92,6 +92,28 @@ def measure_text_width_in(texts, fontsize, dpi=100):
     return out
 
 
+def compute_left_margin_frac(
+    labels, fig_width, fontsize, has_value_chart=False,
+    pad_in=0.16, floor=0.08, cap=0.45,
+):
+    """Left-margin fraction wide enough for the longest left-side row label.
+
+    Gene names and track titles are drawn to the left of the plot; a fixed
+    margin clips long ones (e.g. "Material Description"). This measures the
+    widest label and returns a figure-fraction margin sized to fit it (with a
+    pad), clamped to a sane range. *has_value_chart* adds room for the numeric
+    y-ticks that value-chart tracks place left of their title.
+    """
+    widths = measure_text_width_in([str(x) for x in labels], fontsize)
+    max_in = max(widths.values()) if widths else 0.0
+    tick_allow = 0.0
+    if has_value_chart:
+        _tn = measure_text_width_in(["0000"], max(fontsize - 2, 4))
+        tick_allow = _tn.get("0000", 0.0) + 8.0 / 72  # 8 pt labelpad
+    left_in = max_in + tick_allow + pad_in
+    return min(cap, max(floor, left_in / max(fig_width, 1e-6)))
+
+
 def plan_group_header_levels(
     group_boundaries, per_sample_in, fontsize, pad_in=0.06,
 ):

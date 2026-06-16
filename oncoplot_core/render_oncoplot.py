@@ -18,6 +18,8 @@ from .render_shared import (
     measure_label_height_in,
     annotation_track_heights,
     plan_group_header_levels,
+    compute_left_margin_frac,
+    VALUE_PLOT_STYLES,
 )
 
 
@@ -107,9 +109,24 @@ def draw_oncoplot(
     # Each level decides its own orientation/font/height so crowded (crumbled)
     # subgroups flip to vertical instead of overlapping — see
     # plan_group_header_levels. The band height is the sum of the per-level slots.
+    # Left margin auto-sizes to the widest left-side label (gene names + track
+    # titles) so long titles like "Material Description" aren't clipped.
+    _right = 0.95
+    _has_value_chart = any(
+        clinical_types.get(c) == "Continuous"
+        and (track_options.get(c) or {}).get("value_plot") in VALUE_PLOT_STYLES
+        for c in clinical_cols
+    )
+    _left = compute_left_margin_frac(
+        list(genes)
+        + [display_names.get(c, c) for c in clinical_cols]
+        + [display_names.get(c, c) for c in data_rows],
+        fig_width, fontsize, has_value_chart=_has_value_chart,
+    )
     _wr0_est = max(n_samples * 0.25, 6)
     _per_sample_in = (
-        (fig_width * (0.95 - 0.08) * _wr0_est / (_wr0_est + 3)) / max(n_samples, 1)
+        (fig_width * (_right - _left) * _wr0_est / (_wr0_est + 3))
+        / max(n_samples, 1)
     )
     _grp_plan = plan_group_header_levels(
         group_boundaries, _per_sample_in, fontsize
@@ -388,7 +405,7 @@ def draw_oncoplot(
     top_margin = 1.0 - top_pad / fig_height
     bottom = bottom_pad / fig_height
 
-    _left, _right = 0.08, 0.95
+    # _left / _right computed earlier (left auto-sized to the longest row label).
     fig.subplots_adjust(
         left=_left, right=_right, top=top_margin, bottom=bottom,
     )
