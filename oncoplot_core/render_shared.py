@@ -68,13 +68,14 @@ def _style_value_track(ax, label, n_samples, fontsize, vmin, vmax):
     )
 
 
-def measure_text_width_in(texts, fontsize, dpi=100):
+def measure_text_width_in(texts, fontsize, dpi=100, fontweight="normal"):
     """Rendered width (inches) of each string at *fontsize*, keyed by str(text).
 
     Measures real bounding boxes on a throwaway figure (like
-    :func:`measure_label_height_in`) so group-header fitting reflects the actual
-    proportional-font widths rather than character-count guesses. Width scales
-    linearly with fontsize, so callers can rescale a single measurement.
+    :func:`measure_label_height_in`) so fitting reflects actual proportional-font
+    widths rather than character-count guesses. *fontweight* must match how the
+    text is actually drawn — semibold/bold are wider than normal, and measuring
+    the wrong weight under-reserves space (clipping long labels).
     """
     out = {}
     if not texts:
@@ -83,7 +84,7 @@ def measure_text_width_in(texts, fontsize, dpi=100):
     try:
         renderer = fig_tmp.canvas.get_renderer()
         for t in texts:
-            txt = fig_tmp.text(0, 0, str(t), fontsize=fontsize)
+            txt = fig_tmp.text(0, 0, str(t), fontsize=fontsize, fontweight=fontweight)
             bb = txt.get_window_extent(renderer)
             txt.remove()
             out[str(t)] = bb.width / dpi
@@ -104,7 +105,11 @@ def compute_left_margin_frac(
     pad), clamped to a sane range. *has_value_chart* adds room for the numeric
     y-ticks that value-chart tracks place left of their title.
     """
-    widths = measure_text_width_in([str(x) for x in labels], fontsize)
+    # Track titles render semibold (wider than normal) — measure that weight so
+    # the reserved margin actually fits them.
+    widths = measure_text_width_in(
+        [str(x) for x in labels], fontsize, fontweight="semibold"
+    )
     max_in = max(widths.values()) if widths else 0.0
     tick_allow = 0.0
     if has_value_chart:
@@ -132,7 +137,11 @@ def plan_group_header_levels(
     for lvl in sorted(group_boundaries):
         base_f = float(max(fontsize - min(lvl, 2), 5))
         blocks = group_boundaries[lvl]
-        widths = measure_text_width_in([lbl for lbl, _, _ in blocks], base_f)
+        # Level 0 renders bold, deeper levels semibold — measure that weight.
+        _weight = "bold" if lvl == 0 else "semibold"
+        widths = measure_text_width_in(
+            [lbl for lbl, _, _ in blocks], base_f, fontweight=_weight
+        )
 
         fits = True
         min_block_in = float("inf")
