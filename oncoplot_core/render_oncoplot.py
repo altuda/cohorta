@@ -16,6 +16,7 @@ from .render_shared import (
     render_group_separators,
     build_categorical_legend_handles,
     measure_label_height_in,
+    annotation_track_heights,
 )
 
 
@@ -106,9 +107,7 @@ def draw_oncoplot(
     tmb_h = 2.0 if show_tmb else 0.001
     mat_h = max(n_genes * 0.45, 3.0)
     data_h = 0.6
-    trk_h = 0.6
-    gap_h = 0.25 if (n_data + n_tracks) > 0 else 0.0
-    has_gap = gap_h > 0
+    gap_h = 0.25
 
     _labels_visible = show_sample_labels and n_samples <= 80
     _labels_on_top = _labels_visible and annotations_position == "bottom"
@@ -119,36 +118,54 @@ def draw_oncoplot(
         measure_label_height_in(samples, fontsize) if _labels_visible else 0.0
     )
 
-    if annotations_position == "top":
-        height_ratios = (
-            [tmb_h]
-            + [trk_h] * n_tracks
-            + [data_h] * n_data
-            + ([gap_h] if has_gap else [])
-            + [mat_h]
-        )
-        tmb_row = 0
-        trk_start = 1
-        data_start = 1 + n_tracks
-        gap_row = 1 + n_tracks + n_data if has_gap else None
-        mat_row = 1 + n_tracks + n_data + int(has_gap)
-        _lbl_spacer = None
-    else:
-        _lbl_off = int(_labels_on_top)
-        height_ratios = (
-            [tmb_h]
-            + ([_label_h] if _labels_on_top else [])
-            + [mat_h]
-            + ([gap_h] if has_gap else [])
-            + [data_h] * n_data
-            + [trk_h] * n_tracks
-        )
-        tmb_row = 0
-        _lbl_spacer = 1 if _labels_on_top else None
-        mat_row = 1 + _lbl_off
-        gap_row = 2 + _lbl_off if has_gap else None
-        data_start = 2 + _lbl_off + int(has_gap)
-        trk_start = 2 + _lbl_off + int(has_gap) + n_data
+    # Each annotation track may pin itself "top"/"bottom" (relative to the
+    # matrix); otherwise it follows the global annotations_position. Data rows
+    # (rarely used) stay on the global side, adjacent to the matrix.
+    def _eff_pos(c):
+        p = (track_options.get(c) or {}).get("position")
+        return p if p in ("top", "bottom") else annotations_position
+
+    top_cols = [c for c in clinical_cols if _eff_pos(c) == "top"]
+    bot_cols = [c for c in clinical_cols if _eff_pos(c) == "bottom"]
+    top_heights = annotation_track_heights(top_cols, clinical_types, track_options)
+    bot_heights = annotation_track_heights(bot_cols, clinical_types, track_options)
+    data_on_top = annotations_position == "top"
+
+    # Build the row plan top→bottom, tagging each row so the renderers address
+    # rows by role instead of fragile offset arithmetic.
+    height_ratios = []
+    row_tags = []
+
+    def _add_row(h, tag):
+        height_ratios.append(h)
+        row_tags.append(tag)
+
+    _add_row(tmb_h, "tmb")
+    for h in top_heights:
+        _add_row(h, "top_trk")
+    if data_on_top:
+        for _ in range(n_data):
+            _add_row(data_h, "data")
+    if top_cols or (data_on_top and n_data):
+        _add_row(gap_h, "gap")
+    if _labels_on_top:
+        _add_row(_label_h, "lblspacer")
+    _add_row(mat_h, "matrix")
+    if bot_cols or (not data_on_top and n_data):
+        _add_row(gap_h, "gap")
+    if not data_on_top:
+        for _ in range(n_data):
+            _add_row(data_h, "data")
+    for h in bot_heights:
+        _add_row(h, "bot_trk")
+
+    tmb_row = 0
+    mat_row = row_tags.index("matrix")
+    _lbl_spacer = row_tags.index("lblspacer") if "lblspacer" in row_tags else None
+    top_trk_start = row_tags.index("top_trk") if "top_trk" in row_tags else None
+    bot_trk_start = row_tags.index("bot_trk") if "bot_trk" in row_tags else None
+    data_start = row_tags.index("data") if "data" in row_tags else 0
+    gap_rows = [i for i, t in enumerate(row_tags) if t == "gap"]
 
     # ── Margin budget (inches) ──────────────────────────────────
     # Top reserves the title; bottom reserves the legend rows plus, when the
@@ -319,10 +336,10 @@ def draw_oncoplot(
     else:
         fig.add_subplot(gs[mat_row, 1]).set_visible(False)
 
-    # ── Spacer ─────────────────────────────────────────────────
-    if gap_row is not None:
-        fig.add_subplot(gs[gap_row, 0]).set_visible(False)
-        fig.add_subplot(gs[gap_row, 1]).set_visible(False)
+    # ── Spacers (gaps between matrix and the track blocks) ─────
+    for _g in gap_rows:
+        fig.add_subplot(gs[_g, 0]).set_visible(False)
+        fig.add_subplot(gs[_g, 1]).set_visible(False)
 
     # ── 4. Data rows ───────────────────────────────────────────
     render_data_rows(
@@ -331,13 +348,21 @@ def draw_oncoplot(
         all_axes, sharex_ax=ax_mat,
     )
 
-    # ── 5. Annotation tracks ──────────────────────────────────
-    render_annotation_tracks(
-        fig, gs, clinical_data, clinical_cols, clinical_types,
-        clinical_colors, track_options, display_names,
-        samples, trk_start, n_samples, fontsize,
-        all_axes, sharex_ax=ax_mat,
-    )
+    # ── 5. Annotation tracks (split into top / bottom blocks) ──
+    if top_cols and top_trk_start is not None:
+        render_annotation_tracks(
+            fig, gs, clinical_data, top_cols, clinical_types,
+            clinical_colors, track_options, display_names,
+            samples, top_trk_start, n_samples, fontsize,
+            all_axes, sharex_ax=ax_mat,
+        )
+    if bot_cols and bot_trk_start is not None:
+        render_annotation_tracks(
+            fig, gs, clinical_data, bot_cols, clinical_types,
+            clinical_colors, track_options, display_names,
+            samples, bot_trk_start, n_samples, fontsize,
+            all_axes, sharex_ax=ax_mat,
+        )
 
     # ── 6. Group separator lines (labels drawn in header band below) ──
     if group_boundaries:

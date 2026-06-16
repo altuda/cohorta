@@ -9,6 +9,18 @@ const DEFAULT_TRACK_OPTS: TrackOptionsPayload = {
   show_values: false,
   text_color: "#000000",
   tile_color: null,
+  value_plot: null,
+  plot_color: "#4C72B0",
+  plot_size: 1.0,
+  position: null,
+};
+
+// Per-style label for the size slider.
+const SIZE_LABEL: Record<string, string> = {
+  columns: "Bar width",
+  points: "Point size",
+  lollipop: "Head size",
+  connected: "Line width",
 };
 
 function ColorPopover({
@@ -145,38 +157,59 @@ export default function AnnotationTrackOptions({ col }: { col: string }) {
         </select>
       </label>
 
-      {/* Tile color override */}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={useTileColor}
+      <label className="block">
+        <span className="text-xs text-slate-500">Position</span>
+        <select
+          value={trackOptions.position ?? "default"}
           onChange={(e) => {
-            setUseTileColor(e.target.checked);
-            setTrackOption(col, {
-              tile_color: e.target.checked ? "#E0E0E0" : null,
-            });
-            if (e.target.checked) {
-              setAnnotationColor(col, {});
-            }
+            const v = e.target.value;
+            setTrackOption(col, { position: v === "default" ? null : v });
           }}
-        />
-        <span className="text-slate-700">Single tile colour</span>
+          className="mt-0.5 block w-full rounded border border-slate-200 px-2 py-1 text-sm bg-white"
+        >
+          <option value="default">Default (follow global)</option>
+          <option value="top">Top (above matrix)</option>
+          <option value="bottom">Bottom (below matrix)</option>
+        </select>
       </label>
 
-      {useTileColor && (
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={trackOptions.tile_color ?? "#E0E0E0"}
-            onChange={(e) =>
-              setTrackOption(col, { tile_color: e.target.value })
-            }
-            className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
-          />
-          <span className="text-xs text-slate-500">
-            {trackOptions.tile_color}
-          </span>
-        </div>
+      {/* Tile colour override — only meaningful for colour-strip tracks, not
+          for value charts (which use the Plot colour instead). */}
+      {!(annotationType === "Continuous" && trackOptions.value_plot) && (
+        <>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={useTileColor}
+              onChange={(e) => {
+                setUseTileColor(e.target.checked);
+                setTrackOption(col, {
+                  tile_color: e.target.checked ? "#E0E0E0" : null,
+                });
+                if (e.target.checked) {
+                  setAnnotationColor(col, {});
+                }
+              }}
+            />
+            <span className="text-slate-700">Single tile colour</span>
+          </label>
+
+          {useTileColor && (
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={trackOptions.tile_color ?? "#E0E0E0"}
+                onChange={(e) =>
+                  setTrackOption(col, { tile_color: e.target.value })
+                }
+                className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+              />
+              <span className="text-xs text-slate-500">
+                {trackOptions.tile_color}
+              </span>
+            </div>
+          )}
+        </>
       )}
 
       {/* Categorical color assignment */}
@@ -247,42 +280,108 @@ export default function AnnotationTrackOptions({ col }: { col: string }) {
         </div>
       )}
 
-      {/* Continuous colormap */}
+      {/* Continuous display: colour strip (with colormap) or value chart */}
       {annotationType === "Continuous" && !useTileColor && (
-        <label className="block">
-          <span className="text-xs text-slate-500">Colormap</span>
-          <select
-            value={
-              typeof annotationColors === "string"
-                ? annotationColors
-                : "viridis"
+        <div className="space-y-2">
+          <label className="block">
+            <span className="text-xs text-slate-500">Display as</span>
+            <select
+              value={trackOptions.value_plot ?? "tile"}
+              onChange={(e) => {
+                const v = e.target.value;
+                setTrackOption(col, { value_plot: v === "tile" ? null : v });
+              }}
+              className="mt-0.5 block w-full rounded border border-slate-200 px-2 py-1 text-sm bg-white"
+            >
+              <option value="tile">Colour strip</option>
+              <option value="columns">Columns</option>
+              <option value="points">Points</option>
+              <option value="lollipop">Lollipop</option>
+              <option value="connected">Connected line</option>
+            </select>
+          </label>
+
+          {!trackOptions.value_plot ? (
+            <label className="block">
+              <span className="text-xs text-slate-500">Colormap</span>
+              <select
+                value={
+                  typeof annotationColors === "string"
+                    ? annotationColors
+                    : "viridis"
+                }
+                onChange={(e) => setAnnotationColor(col, e.target.value)}
+                className="mt-0.5 block w-full rounded border border-slate-200 px-2 py-1 text-sm bg-white"
+              >
+                {[
+                  "viridis", "plasma", "inferno", "magma",
+                  "coolwarm", "RdBu", "YlOrRd", "Blues",
+                ].map((cm) => (
+                  <option key={cm}>{cm}</option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={trackOptions.plot_color ?? "#4C72B0"}
+                  onChange={(e) =>
+                    setTrackOption(col, { plot_color: e.target.value })
+                  }
+                  className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                />
+                <span className="text-xs text-slate-500">Plot colour</span>
+              </div>
+
+              <label className="block">
+                <span className="text-xs text-slate-500">
+                  {SIZE_LABEL[trackOptions.value_plot] ?? "Size"}{" "}
+                  ×{(trackOptions.plot_size ?? 1).toFixed(1)}
+                </span>
+                <input
+                  type="range"
+                  min={0.3}
+                  max={3}
+                  step={0.1}
+                  value={trackOptions.plot_size ?? 1}
+                  onChange={(e) =>
+                    setTrackOption(col, {
+                      plot_size: parseFloat(e.target.value),
+                    })
+                  }
+                  className="mt-1 w-full"
+                />
+              </label>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Show values in tiles (not applicable to value charts) */}
+      {!(
+        annotationType === "Continuous" &&
+        !useTileColor &&
+        trackOptions.value_plot
+      ) && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={trackOptions.show_values}
+            onChange={(e) =>
+              setTrackOption(col, { show_values: e.target.checked })
             }
-            onChange={(e) => setAnnotationColor(col, e.target.value)}
-            className="mt-0.5 block w-full rounded border border-slate-200 px-2 py-1 text-sm bg-white"
-          >
-            {[
-              "viridis", "plasma", "inferno", "magma",
-              "coolwarm", "RdBu", "YlOrRd", "Blues",
-            ].map((cm) => (
-              <option key={cm}>{cm}</option>
-            ))}
-          </select>
+          />
+          <span className="text-slate-700">Show values in tiles</span>
         </label>
       )}
 
-      {/* Show values in tiles */}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={trackOptions.show_values}
-          onChange={(e) =>
-            setTrackOption(col, { show_values: e.target.checked })
-          }
-        />
-        <span className="text-slate-700">Show values in tiles</span>
-      </label>
-
-      {trackOptions.show_values && (
+      {trackOptions.show_values && !(
+        annotationType === "Continuous" &&
+        !useTileColor &&
+        trackOptions.value_plot
+      ) && (
         <div className="flex items-center gap-2">
           <input
             type="color"

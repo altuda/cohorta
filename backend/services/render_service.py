@@ -133,6 +133,10 @@ def _build_figure(session: SessionData, req: RenderRequest):
             "show_values": opts.show_values,
             "text_color": opts.text_color,
             "tile_color": opts.tile_color,
+            "value_plot": opts.value_plot,
+            "plot_color": opts.plot_color,
+            "plot_size": opts.plot_size,
+            "position": opts.position,
         }
         for col, opts in req.track_options.items()
     }

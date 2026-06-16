@@ -11,6 +11,63 @@ from .constants import FALLBACK_COLORS
 from .helpers import _get_cmap
 
 
+# Numeric tracks can be drawn as an x/y chart instead of a colour strip.
+VALUE_PLOT_STYLES = ("columns", "points", "lollipop", "connected")
+_TRACK_TILE_H = 0.6   # height (inches) of a colour-strip track row
+_TRACK_PLOT_H = 1.3   # height (inches) of a value-chart track row
+
+
+def _fmt_num(v):
+    """Compact numeric label: integers without a decimal, else one decimal."""
+    if v is None:
+        return ""
+    f = float(v)
+    if np.isnan(f):
+        return ""
+    return str(int(f)) if f == int(f) else f"{f:.1f}"
+
+
+def annotation_track_heights(clinical_cols, clinical_types, track_options):
+    """Per-track row heights (inches).
+
+    Value-chart tracks (numeric columns set to columns/points/lollipop/
+    connected) get a taller row than plain colour strips so the curve is
+    legible. Returns one height per column, in *clinical_cols* order.
+    """
+    clinical_cols = clinical_cols or []
+    clinical_types = clinical_types or {}
+    track_options = track_options or {}
+    heights = []
+    for col in clinical_cols:
+        opts = track_options.get(col, {})
+        is_cont = clinical_types.get(col, "Categorical") == "Continuous"
+        if is_cont and opts.get("value_plot") in VALUE_PLOT_STYLES:
+            heights.append(_TRACK_PLOT_H)
+        else:
+            heights.append(_TRACK_TILE_H)
+    return heights
+
+
+def _style_value_track(ax, label, n_samples, fontsize, vmin, vmax):
+    """Style a numeric value-chart track axis (name + min/max scale, no grid)."""
+    ax.set_xlim(-0.5, n_samples - 0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    for s in ("left", "bottom"):
+        ax.spines[s].set_visible(True)
+        ax.spines[s].set_linewidth(0.4)
+        ax.spines[s].set_color("#999999")
+    ticks = sorted({round(vmin, 4), round(vmax, 4)})
+    ax.set_yticks(ticks)
+    ax.set_yticklabels([_fmt_num(t) for t in ticks], fontsize=max(fontsize - 2, 4))
+    ax.tick_params(axis="x", bottom=False, labelbottom=False)
+    ax.tick_params(axis="y", length=2)
+    ax.set_ylabel(
+        label, fontsize=fontsize, fontweight="semibold",
+        rotation=0, ha="right", va="center", labelpad=8,
+    )
+
+
 def measure_label_height_in(samples, fontsize, rotation=90, pad_in=0.08, dpi=100):
     """Vertical extent (inches) the sample labels need when rotated.
 
@@ -113,6 +170,58 @@ def render_annotation_tracks(
         var_type = clinical_types.get(col, "Categorical")
         _opts = track_options.get(col, {})
         _tile_color = _opts.get("tile_color")
+        _value_plot = _opts.get("value_plot")
+
+        # ── Numeric value chart (columns / points / lollipop / line) ──
+        if var_type == "Continuous" and _value_plot in VALUE_PLOT_STYLES:
+            num_vals = pd.to_numeric(values, errors="coerce").values.astype(float)
+            x = np.arange(n_samples)
+            color = _opts.get("plot_color") or "#4C72B0"
+            size = float(_opts.get("plot_size") or 1.0)
+            finite = num_vals[np.isfinite(num_vals)]
+            vmin = float(finite.min()) if finite.size else 0.0
+            vmax = float(finite.max()) if finite.size else 1.0
+            # Bars/lollipops grow from zero when the data spans zero, otherwise
+            # from the data minimum so a tight positive range isn't flattened
+            # against a far-away zero baseline.
+            base = 0.0 if vmin <= 0 <= vmax else vmin
+
+            if _value_plot == "columns":
+                heights = np.where(np.isfinite(num_vals), num_vals - base, 0.0)
+                ax_trk.bar(
+                    x, heights, bottom=base,
+                    width=max(0.05, min(1.0, 0.8 * size)),
+                    color=color, linewidth=0,
+                )
+            elif _value_plot == "points":
+                ax_trk.scatter(x, num_vals, s=36 * size, color=color, zorder=3)
+            elif _value_plot == "lollipop":
+                ax_trk.vlines(
+                    x, base, num_vals, color=color,
+                    linewidth=max(0.5, 1.0 * size), zorder=2,
+                )
+                ax_trk.scatter(x, num_vals, s=36 * size, color=color, zorder=3)
+            else:  # connected
+                _m = np.isfinite(num_vals)
+                ax_trk.plot(
+                    x[_m], num_vals[_m], color=color,
+                    linewidth=1.2 * size,
+                    marker="o", markersize=5 * size, zorder=3,
+                )
+
+            span = (vmax - vmin) or (abs(vmax) or 1.0)
+            pad = span * 0.15
+            lo = min(vmin, base) - pad
+            hi = max(vmax, base) + pad
+            ax_trk.set_ylim(lo, hi)
+            if _value_plot in ("columns", "lollipop") and lo < base < hi:
+                ax_trk.axhline(base, color="#cccccc", linewidth=0.5, zorder=1)
+
+            label = display_names.get(col, col)
+            _style_value_track(ax_trk, label, n_samples, fontsize, vmin, vmax)
+            all_axes.append(ax_trk)
+            fig.add_subplot(gs[row_idx, 1]).set_visible(False)
+            continue
 
         if var_type == "Categorical":
             unique_vals = sorted(values.dropna().unique(), key=str)
@@ -176,6 +285,11 @@ def render_annotation_tracks(
                 )
             else:
                 cm_name = clinical_colors.get(col, "viridis")
+                # A column may carry a leftover categorical colour *map* (dict)
+                # from before it was switched to Continuous; fall back to a real
+                # colormap name in that case rather than crashing.
+                if not isinstance(cm_name, str):
+                    cm_name = "viridis"
                 trk_cmap = _get_cmap(cm_name).copy()
                 trk_cmap.set_bad(color="#F0F0F0")
                 _ct_masked = np.ma.array(

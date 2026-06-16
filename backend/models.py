@@ -60,6 +60,17 @@ class TrackOptionsPayload(BaseModel):
     show_values: bool = False
     text_color: str = "#000000"
     tile_color: str | None = None
+    # For numeric (Continuous) tracks: render the values as an x/y chart instead
+    # of a colour strip. None → colour strip (default); otherwise one of
+    # "columns" | "points" | "lollipop" | "connected".
+    value_plot: str | None = None
+    plot_color: str = "#4C72B0"
+    # Size multiplier for the value chart, interpreted per style: point/marker
+    # size, line width, lollipop head, or bar width. 1.0 = default.
+    plot_size: float = 1.0
+    # Per-track placement relative to the matrix: "top" | "bottom". None →
+    # follow the global annotations_position.
+    position: str | None = None
 
 
 class RenderRequest(BaseModel):

@@ -187,6 +187,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         show_values: false,
         text_color: "#000000",
         tile_color: null,
+        value_plot: null,
+        plot_color: "#4C72B0",
+        plot_size: 1.0,
+        position: null,
       };
       return {
         trackOptions: {

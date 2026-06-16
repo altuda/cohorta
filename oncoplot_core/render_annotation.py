@@ -11,6 +11,7 @@ from .render_shared import (
     render_group_separators,
     build_categorical_legend_handles,
     measure_label_height_in,
+    annotation_track_heights,
 )
 
 
@@ -50,7 +51,9 @@ def draw_annotation_plot(
     _grp_label_h = _n_grp_levels * fontsize * 2.5 / 72
     header_h = max(0.001, _grp_label_h)
     data_h = 0.6
-    trk_h = 0.6
+    trk_heights = annotation_track_heights(
+        clinical_cols, clinical_types, track_options
+    )
 
     _labels_visible = show_sample_labels and n_samples <= 80
     # In annotation-only mode the "position" setting controls sample labels:
@@ -70,7 +73,7 @@ def draw_annotation_plot(
         [header_h]
         + ([_lbl_spacer_h] if _labels_on_top else [])
         + [data_h] * n_data
-        + [trk_h] * n_tracks
+        + trk_heights
     )
     header_row = 0
     _lbl_spacer = 1 if _labels_on_top else None

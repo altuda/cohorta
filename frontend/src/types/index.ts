@@ -35,6 +35,17 @@ export interface TrackOptionsPayload {
   show_values: boolean;
   text_color: string;
   tile_color: string | null;
+  // For numeric (Continuous) tracks: render values as an x/y chart instead of a
+  // colour strip. null → colour strip; else "columns" | "points" | "lollipop" |
+  // "connected".
+  value_plot: string | null;
+  plot_color: string;
+  // Size multiplier for the value chart (point/marker size, line width,
+  // lollipop head, or bar width depending on style). 1.0 = default.
+  plot_size: number;
+  // Per-track placement relative to the matrix: "top" | "bottom". null → follow
+  // the global annotations position.
+  position: string | null;
 }
 
 export interface RenderRequest {
