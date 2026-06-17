@@ -80,9 +80,6 @@ export default function TrackOrderPanel() {
 
   return (
     <div>
-      <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">
-        Track Order
-      </h2>
       <p className="text-xs text-slate-400 mb-2">
         Drag to reorder annotation tracks
       </p>

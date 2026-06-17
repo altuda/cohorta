@@ -6,9 +6,6 @@ export default function PlotSettingsPanel() {
 
   return (
     <div>
-      <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">
-        Plot Settings
-      </h2>
       <div className="space-y-2">
         {hasGene && (
           <label className="block">

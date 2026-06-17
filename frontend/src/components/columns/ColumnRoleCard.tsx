@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSessionStore } from "../../stores/useSessionStore";
 import { COLUMN_ROLES } from "../../types";
 import AnnotationTrackOptions from "./AnnotationTrackOptions";
+import MutationColorsPanel from "../plot/MutationColorsPanel";
 
 interface Props {
   col: string;
@@ -9,11 +10,20 @@ interface Props {
 
 export default function ColumnRoleCard({ col }: Props) {
   const role = useSessionStore((s) => s.roles[col] ?? "Skip");
+  const roles = useSessionStore((s) => s.roles);
   const displayName = useSessionStore((s) => s.displayNames[col] ?? col);
   const setRole = useSessionStore((s) => s.setRole);
   const setDisplayName = useSessionStore((s) => s.setDisplayName);
 
   const [open, setOpen] = useState(role !== "Skip");
+
+  // Mutation/gene colours belong to the column that drives the matrix colours:
+  // the Mutation Type column when present, else the Gene / Feature column
+  // (gene-as-colour mode). Shown inline so all colours live with their column.
+  const hasMutType = Object.values(roles).includes("Mutation Type");
+  const showMutColors =
+    role === "Mutation Type" ||
+    (role === "Gene / Feature" && !hasMutType);
 
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -62,6 +72,12 @@ export default function ColumnRoleCard({ col }: Props) {
 
           {role === "Annotation Track" && (
             <AnnotationTrackOptions col={col} />
+          )}
+
+          {showMutColors && (
+            <div className="pt-1">
+              <MutationColorsPanel />
+            </div>
           )}
         </div>
       )}

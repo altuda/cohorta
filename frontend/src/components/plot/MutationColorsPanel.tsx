@@ -133,16 +133,10 @@ export default function MutationColorsPanel() {
 
   if (!hasGene) return null;
 
-  const hasMut = Object.values(roles).includes("Mutation Type");
-  const heading = hasMut ? "Mutation Type Colours" : "Gene / Alteration Colours";
   const shown = mutationTypes.slice(0, 20);
 
   return (
     <div>
-      <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">
-        {heading}
-      </h2>
-
       <div className="space-y-2">
         <label className="block">
           <span className="text-xs text-slate-500">Palette</span>

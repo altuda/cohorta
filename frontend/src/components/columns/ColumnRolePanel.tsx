@@ -31,9 +31,6 @@ export default function ColumnRolePanel() {
 
   return (
     <div>
-      <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">
-        Column Configuration
-      </h2>
       <div className="space-y-1.5">
         {columns.map((col) => (
           <ColumnRoleCard key={col} col={col} />

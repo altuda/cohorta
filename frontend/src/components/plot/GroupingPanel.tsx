@@ -212,9 +212,6 @@ export default function GroupingPanel() {
 
   return (
     <div>
-      <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">
-        Grouping
-      </h2>
       <div className="space-y-2">
         {groupColumns.map((gc, i) => (
           <div key={i}>
